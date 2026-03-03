@@ -3,12 +3,12 @@ package com.vitiquest.peerreview.ui
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffDialogHints
 import com.intellij.diff.DiffManager
-import com.intellij.diff.chains.SimpleDiffRequestChain
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
@@ -29,37 +29,84 @@ import java.time.format.DateTimeFormatter
 import javax.swing.*
 import javax.swing.border.MatteBorder
 
+// ---------------------------------------------------------------------------
+// Data class holding a parsed per-file diff entry
+// ---------------------------------------------------------------------------
+data class FileDiffEntry(
+    val displayLabel: String,   // e.g. "src/Foo.kt"
+    val statusTag: String,      // "ADDED" | "DELETED" | "MODIFIED" | "RENAMED"
+    val oldPath: String,
+    val newPath: String,
+    val oldText: String,        // reconstructed old file content
+    val newText: String         // reconstructed new file content
+)
+
+// ---------------------------------------------------------------------------
+// Main panel – uses CardLayout to switch between PR list and File list views
+// ---------------------------------------------------------------------------
 class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
 
-    private val service = PullRequestService()
+    private val service  = PullRequestService()
     private val aiClient = OpenAIClient()
 
-    private val listModel = DefaultListModel<PullRequest>()
-    private val prList = JBList(listModel)
+    // ── shared state ─────────────────────────────────────────────────────────
+    private var allPrs: List<PullRequest>     = emptyList()
+    private var bitbucketRepo: Pair<String, String>? = null
+    private var currentPr: PullRequest?       = null
+    private var currentFileEntries: List<FileDiffEntry> = emptyList()
+
+    // ── status bar (shared across both views) ─────────────────────────────────
     private val statusLabel = JBLabel("Ready")
 
-    // Filters
-    private val idFilterField = JBTextField(6)
+    // ── PR list view components ───────────────────────────────────────────────
+    private val listModel        = DefaultListModel<PullRequest>()
+    private val prList           = JBList(listModel)
+    private val idFilterField    = JBTextField(6)
     private val titleFilterField = JBTextField(14)
-    private val stateFilter = ComboBox(arrayOf("OPEN", "MERGED", "DECLINED", "ALL"))
+    private val stateFilter      = ComboBox(arrayOf("OPEN", "MERGED", "DECLINED", "ALL"))
 
-    // All loaded PRs (unfiltered)
-    private var allPrs: List<PullRequest> = emptyList()
-    private var bitbucketRepo: Pair<String, String>? = null
+    // ── File list view components ─────────────────────────────────────────────
+    private val fileListModel = DefaultListModel<FileDiffEntry>()
+    private val fileList      = JBList(fileListModel)
+    private val breadcrumbBar = JPanel(BorderLayout())   // "← Back  •  PR #42 — title"
+
+    // ── Card layout ───────────────────────────────────────────────────────────
+    private val cardLayout   = CardLayout()
+    private val cardPanel    = JPanel(cardLayout)
+    private val CARD_PR_LIST = "PR_LIST"
+    private val CARD_FILES   = "FILE_LIST"
 
     init {
         buildUi()
         detectRepo()
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // UI Construction
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private fun buildUi() {
         background = JBColor.PanelBackground
 
-        // ── Top toolbar ──────────────────────────────────────────────────────
+        cardPanel.add(buildPrListView(), CARD_PR_LIST)
+        cardPanel.add(buildFileListView(), CARD_FILES)
+
+        val statusBar = JPanel(BorderLayout()).apply {
+            border = MatteBorder(1, 0, 0, 0, JBColor.border())
+            background = JBColor.PanelBackground
+            add(statusLabel.apply { border = JBUI.Borders.empty(3, 8, 3, 8) }, BorderLayout.WEST)
+        }
+
+        add(cardPanel,  BorderLayout.CENTER)
+        add(statusBar,  BorderLayout.SOUTH)
+
+        cardLayout.show(cardPanel, CARD_PR_LIST)
+    }
+
+    // ── View 1: PR list ───────────────────────────────────────────────────────
+
+    private fun buildPrListView(): JPanel {
+        // toolbar
         val topPanel = JPanel(GridBagLayout()).apply {
             border = JBUI.Borders.empty(6, 8, 4, 8)
             background = JBColor.PanelBackground
@@ -67,16 +114,14 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         val gbc = GridBagConstraints().apply {
             insets = JBUI.insets(0, 2, 0, 2)
             anchor = GridBagConstraints.WEST
-            fill = GridBagConstraints.NONE
+            fill   = GridBagConstraints.NONE
         }
-
         val refreshBtn = JButton(AllIcons.Actions.Refresh).apply {
-            toolTipText = "Refresh pull requests"
-            isBorderPainted = false
+            toolTipText      = "Refresh pull requests"
+            isBorderPainted  = false
             isContentAreaFilled = false
-            preferredSize = Dimension(28, 28)
+            preferredSize    = Dimension(28, 28)
         }
-
         gbc.gridx = 0; topPanel.add(refreshBtn, gbc)
         gbc.gridx = 1; topPanel.add(JBLabel("Status:"), gbc)
         gbc.gridx = 2; topPanel.add(stateFilter, gbc)
@@ -86,95 +131,185 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         gbc.gridx = 6; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
         topPanel.add(titleFilterField, gbc)
         gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val filterBtn = JButton("Filter").apply { putClientProperty("JButton.buttonType", "tag") }
+        val filterBtn = JButton("Filter")
         gbc.gridx = 7; topPanel.add(filterBtn, gbc)
 
-        // ── PR List ───────────────────────────────────────────────────────────
+        // list
         prList.cellRenderer = PRCardRenderer()
         prList.selectionMode = ListSelectionModel.SINGLE_SELECTION
-        prList.fixedCellHeight = -1   // variable height
+        prList.fixedCellHeight = -1
         prList.background = JBColor.PanelBackground
         val scrollPane = JBScrollPane(prList).apply {
             border = MatteBorder(1, 0, 1, 0, JBColor.border())
         }
 
-        // ── Action buttons ────────────────────────────────────────────────────
+        // buttons
         val btnPanel = JPanel(GridLayout(1, 4, 4, 0)).apply {
             border = JBUI.Borders.empty(6, 8, 4, 8)
             background = JBColor.PanelBackground
         }
-        val viewDiffBtn    = makeActionButton("View Diff",            AllIcons.Actions.Diff)
-        val aiBtn          = makeActionButton("AI Summary",           AllIcons.Actions.GeneratedFolder)
-        val approveBtn     = makeActionButton("✔  Approve",           AllIcons.RunConfigurations.TestPassed)
-        val declineBtn     = makeActionButton("✘  Decline",           AllIcons.RunConfigurations.TestFailed)
-        btnPanel.add(viewDiffBtn)
-        btnPanel.add(aiBtn)
-        btnPanel.add(approveBtn)
-        btnPanel.add(declineBtn)
+        val viewDiffBtn = makeActionButton("View Files", AllIcons.Actions.Diff)
+        val aiBtn       = makeActionButton("AI Summary", AllIcons.Actions.GeneratedFolder)
+        val approveBtn  = makeActionButton("✔  Approve", AllIcons.RunConfigurations.TestPassed)
+        val declineBtn  = makeActionButton("✘  Decline", AllIcons.RunConfigurations.TestFailed)
+        listOf(viewDiffBtn, aiBtn, approveBtn, declineBtn).forEach { btnPanel.add(it) }
 
-        // ── Status bar ────────────────────────────────────────────────────────
-        val statusBar = JPanel(BorderLayout()).apply {
-            border = MatteBorder(1, 0, 0, 0, JBColor.border())
-            background = JBColor.PanelBackground
-            add(statusLabel.apply { border = JBUI.Borders.empty(3, 8, 3, 8) }, BorderLayout.WEST)
-        }
-
-        val southPanel = JPanel(BorderLayout()).apply {
-            background = JBColor.PanelBackground
-            add(btnPanel, BorderLayout.CENTER)
-            add(statusBar, BorderLayout.SOUTH)
-        }
-
-        add(topPanel, BorderLayout.NORTH)
-        add(scrollPane, BorderLayout.CENTER)
-        add(southPanel, BorderLayout.SOUTH)
-
-        // ── Listeners ─────────────────────────────────────────────────────────
+        // wire
         refreshBtn.addActionListener  { loadPullRequests() }
         filterBtn.addActionListener   { applyFilter() }
         stateFilter.addActionListener { loadPullRequests() }
-        viewDiffBtn.addActionListener { onViewDiff() }
+        viewDiffBtn.addActionListener { onViewFiles() }
         aiBtn.addActionListener       { onAiSummary() }
         approveBtn.addActionListener  { onApprove() }
         declineBtn.addActionListener  { onDecline() }
-
-        // double-click to view diff
         prList.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                if (e.clickCount == 2) onViewDiff()
+                if (e.clickCount == 2) onViewFiles()
             }
         })
+
+        return JPanel(BorderLayout()).apply {
+            background = JBColor.PanelBackground
+            add(topPanel,  BorderLayout.NORTH)
+            add(scrollPane, BorderLayout.CENTER)
+            add(btnPanel,  BorderLayout.SOUTH)
+        }
     }
 
-    private fun makeActionButton(label: String, icon: Icon) = JButton(label, icon).apply {
-        horizontalAlignment = SwingConstants.LEFT
-        iconTextGap = 6
+    // ── View 2: File list ─────────────────────────────────────────────────────
+
+    private fun buildFileListView(): JPanel {
+        // Pre-populate breadcrumbBar with a working back button immediately.
+        // updateBreadcrumb() will rebuild this content with full PR info when a PR is selected.
+        breadcrumbBar.apply {
+            border     = MatteBorder(0, 0, 1, 0, JBColor.border())
+            background = JBColor.PanelBackground
+            isOpaque   = true
+        }
+        populateInitialBreadcrumb()
+
+        // file list
+        fileList.cellRenderer = FileEntryRenderer()
+        fileList.selectionMode = ListSelectionModel.SINGLE_SELECTION
+        fileList.fixedCellHeight = -1
+        fileList.background = JBColor.PanelBackground
+        fileList.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                if (e.clickCount == 1) {
+                    fileList.selectedValue?.let { openFileDiff(it) }
+                }
+            }
+        })
+        val scroll = JBScrollPane(fileList).apply {
+            border = MatteBorder(0, 0, 0, 0, JBColor.border())
+        }
+
+        val hintLabel = JBLabel("Click a file to open side-by-side diff").apply {
+            foreground = JBColor.GRAY
+            font       = Font(font.family, Font.ITALIC, 11)
+            border     = JBUI.Borders.empty(4, 12, 4, 12)
+            horizontalAlignment = SwingConstants.CENTER
+        }
+
+        return JPanel(BorderLayout()).apply {
+            background = JBColor.PanelBackground
+            add(breadcrumbBar, BorderLayout.NORTH)   // breadcrumbBar IS the north bar
+            add(scroll,        BorderLayout.CENTER)
+            add(hintLabel,     BorderLayout.SOUTH)
+        }
     }
 
-    // -------------------------------------------------------------------------
+    /** Puts a plain back button in breadcrumbBar before any PR is selected. */
+    private fun populateInitialBreadcrumb() {
+        breadcrumbBar.removeAll()
+        val backBtn = makeBackButton()
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4)).apply {
+            isOpaque = false
+            add(backBtn)
+            add(JBLabel("Changed Files").apply {
+                font = Font(font.family, Font.BOLD, 12)
+                border = JBUI.Borders.empty(0, 4, 0, 0)
+            })
+        }
+        breadcrumbBar.add(left, BorderLayout.CENTER)
+        breadcrumbBar.revalidate()
+        breadcrumbBar.repaint()
+    }
+
+    private fun updateBreadcrumb(pr: PullRequest) {
+        breadcrumbBar.removeAll()
+
+        val prLabel = JBLabel("PR #${pr.id}  —  ${pr.title}").apply {
+            font       = Font(font.family, Font.BOLD, 12)
+            foreground = JBColor.foreground()
+            border     = JBUI.Borders.empty(0, 6, 0, 0)
+        }
+        val branchLabel = JBLabel("${pr.source.branch.name}  →  ${pr.destination.branch.name}").apply {
+            font       = Font(font.family, Font.PLAIN, 11)
+            foreground = JBColor.GRAY
+            border     = JBUI.Borders.empty(0, 10, 0, 0)
+        }
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 4, 4)).apply {
+            isOpaque = false
+            add(makeBackButton())
+            add(prLabel)
+            add(branchLabel)
+        }
+        val rightWrap = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 6)).apply {
+            isOpaque = false
+            add(StatePill(pr.state))
+        }
+        breadcrumbBar.add(left,      BorderLayout.CENTER)
+        breadcrumbBar.add(rightWrap, BorderLayout.EAST)
+        breadcrumbBar.revalidate()
+        breadcrumbBar.repaint()
+    }
+
+    private fun makeBackButton() = JButton(AllIcons.Actions.Back).apply {
+        toolTipText         = "Back to pull requests"
+        isBorderPainted     = false
+        isContentAreaFilled = false
+        preferredSize       = Dimension(28, 28)
+        addActionListener   { showPrListView() }
+    }
+
+    // =========================================================================
+    // Navigation
+    // =========================================================================
+
+    private fun showPrListView() {
+        cardLayout.show(cardPanel, CARD_PR_LIST)
+        setStatus("${listModel.size()} PR(s) loaded.")
+    }
+
+    private fun showFileListView(pr: PullRequest, entries: List<FileDiffEntry>) {
+        currentPr          = pr
+        currentFileEntries = entries
+        fileListModel.clear()
+        entries.forEach { fileListModel.addElement(it) }
+        updateBreadcrumb(pr)
+        setStatus("${entries.size} file(s) changed in PR #${pr.id}.")
+        cardLayout.show(cardPanel, CARD_FILES)
+    }
+
+    // =========================================================================
     // Repository Detection
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private fun detectRepo() {
         val repo = GitUtils.detectBitbucketRepo(project)
-        if (repo == null) {
-            setStatus("⚠ No Bitbucket remote found for this project.")
-            return
-        }
+        if (repo == null) { setStatus("⚠ No Bitbucket remote found for this project."); return }
         bitbucketRepo = repo.workspace to repo.repoSlug
         setStatus("📦 ${repo.workspace}/${repo.repoSlug}")
         loadPullRequests()
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Load PRs
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private fun loadPullRequests() {
-        val (workspace, slug) = bitbucketRepo ?: run {
-            setStatus("⚠ Bitbucket repository not detected.")
-            return
-        }
+        val (workspace, slug) = bitbucketRepo ?: run { setStatus("⚠ Repository not detected."); return }
         val selectedState = stateFilter.selectedItem as String
         val state = if (selectedState == "ALL") "OPEN&state=MERGED&state=DECLINED" else selectedState
         setStatus("Loading pull requests…")
@@ -182,51 +317,42 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
             try {
                 val prs = service.getPullRequests(workspace, slug, state)
                 allPrs = prs
-                invokeLater {
-                    applyFilter()
-                    setStatus("${prs.size} PR(s) loaded.")
-                }
+                invokeLater { applyFilter(); setStatus("${prs.size} PR(s) loaded.") }
             } catch (e: Exception) {
                 invokeLater { setStatus("⚠ ${e.message}") }
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Filtering
-    // -------------------------------------------------------------------------
-
     private fun applyFilter() {
-        val idFilter    = idFilterField.text.trim()
-        val titleFilter = titleFilterField.text.trim().lowercase()
-        val filtered = allPrs.filter { pr ->
-            (idFilter.isEmpty()    || pr.id.toString() == idFilter) &&
-            (titleFilter.isEmpty() || pr.title.lowercase().contains(titleFilter))
-        }
+        val id    = idFilterField.text.trim()
+        val title = titleFilterField.text.trim().lowercase()
         listModel.clear()
-        filtered.forEach { listModel.addElement(it) }
+        allPrs.filter {
+            (id.isEmpty()    || it.id.toString() == id) &&
+            (title.isEmpty() || it.title.lowercase().contains(title))
+        }.forEach { listModel.addElement(it) }
     }
 
-    // -------------------------------------------------------------------------
-    // Diff Viewer  (side-by-side per file, Bitbucket-style)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // "View Files" — fetch diff, parse, switch to file list view
+    // =========================================================================
 
-    private fun onViewDiff() {
+    private fun onViewFiles() {
         val pr = selectedPr() ?: return
         val (workspace, slug) = bitbucketRepo ?: return
         setStatus("Fetching diff for PR #${pr.id}…")
         runInBackground {
             try {
                 val rawDiff = service.getPullRequestDiff(workspace, slug, pr.id)
-                val requests = buildDiffRequests(pr, rawDiff)
+                val entries = parseDiffToEntries(rawDiff)
                 invokeLater {
-                    if (requests.isEmpty()) {
-                        JOptionPane.showMessageDialog(this, "No changes found in this PR.", "No Diff", JOptionPane.INFORMATION_MESSAGE)
+                    if (entries.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "No changes found in PR #${pr.id}.",
+                            "No Diff", JOptionPane.INFORMATION_MESSAGE)
                     } else {
-                        val chain = SimpleDiffRequestChain(requests)
-                        DiffManager.getInstance().showDiff(project, chain, DiffDialogHints.DEFAULT)
+                        showFileListView(pr, entries)
                     }
-                    setStatus("Diff loaded — ${requests.size} file(s) changed.")
                 }
             } catch (e: Exception) {
                 invokeLater { setStatus("Diff error: ${e.message}") }
@@ -234,85 +360,104 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
     }
 
-    /**
-     * Parses a unified diff into one SimpleDiffRequest per file.
-     * Each request has left = old content, right = new content,
-     * giving a clean Bitbucket-style side-by-side view inside IntelliJ's diff viewer.
-     */
-    private fun buildDiffRequests(pr: PullRequest, rawDiff: String): List<SimpleDiffRequest> {
-        val factory = DiffContentFactory.getInstance()
-        val requests = mutableListOf<SimpleDiffRequest>()
+    // =========================================================================
+    // Open a single file's diff in IntelliJ side-by-side viewer
+    // =========================================================================
 
-        // Split on "diff --git" boundaries
+    private fun openFileDiff(entry: FileDiffEntry) {
+        val pr      = currentPr ?: return
+        val factory = DiffContentFactory.getInstance()
+
+        val leftContent  = factory.create(project, entry.oldText)
+        val rightContent = factory.create(project, entry.newText)
+
+        val leftTitle  = when (entry.statusTag) {
+            "ADDED"   -> "(new file)"
+            else      -> "${pr.destination.branch.name}  (base)"
+        }
+        val rightTitle = when (entry.statusTag) {
+            "DELETED" -> "(deleted)"
+            else      -> "${pr.source.branch.name}  (PR)"
+        }
+
+        val request = SimpleDiffRequest(
+            "PR #${pr.id}  —  ${entry.displayLabel}",
+            leftContent, rightContent,
+            leftTitle,   rightTitle
+        )
+        DiffManager.getInstance().showDiff(project, request, DiffDialogHints.DEFAULT)
+    }
+
+    // =========================================================================
+    // Unified diff parser → List<FileDiffEntry>
+    // =========================================================================
+
+    private fun parseDiffToEntries(rawDiff: String): List<FileDiffEntry> {
+        val entries = mutableListOf<FileDiffEntry>()
         val filePatches = rawDiff.split(Regex("(?=diff --git )")).filter { it.isNotBlank() }
 
         for (patch in filePatches) {
             val lines = patch.lines()
 
-            // Extract file paths from the "--- a/..." / "+++ b/..." headers
             val oldPath = lines.firstOrNull { it.startsWith("--- ") }
-                ?.removePrefix("--- ")
-                ?.removePrefix("a/")
-                ?.trim() ?: "unknown"
+                ?.removePrefix("--- ")?.removePrefix("a/")?.trim() ?: "unknown"
             val newPath = lines.firstOrNull { it.startsWith("+++ ") }
-                ?.removePrefix("+++ ")
-                ?.removePrefix("b/")
-                ?.trim() ?: "unknown"
+                ?.removePrefix("+++ ")?.removePrefix("b/")?.trim() ?: "unknown"
 
-            val isNewFile     = oldPath == "/dev/null" || oldPath == "dev/null"
-            val isDeletedFile = newPath == "/dev/null" || newPath == "dev/null"
+            val isAdded   = oldPath == "/dev/null" || oldPath == "dev/null"
+            val isDeleted = newPath == "/dev/null" || newPath == "dev/null"
+            val isRenamed = !isAdded && !isDeleted && oldPath != newPath
 
-            // Reconstruct old and new file content from the diff hunks
             val oldLines = mutableListOf<String>()
             val newLines = mutableListOf<String>()
 
             for (line in lines) {
                 when {
-                    line.startsWith("--- ") || line.startsWith("+++ ") ||
-                    line.startsWith("diff ") || line.startsWith("index ") ||
-                    line.startsWith("new file") || line.startsWith("deleted file") ||
-                    line.startsWith("@@") -> Unit   // skip header lines
-                    line.startsWith("-")  -> oldLines.add(line.drop(1))
-                    line.startsWith("+")  -> newLines.add(line.drop(1))
-                    line.startsWith("\\") -> Unit   // "\ No newline at end of file"
-                    else                  -> {      // context line
-                        val ctx = line.drop(1).ifEmpty { line } // drop leading space
-                        oldLines.add(ctx)
-                        newLines.add(ctx)
+                    line.startsWith("--- ")     ||
+                    line.startsWith("+++ ")     ||
+                    line.startsWith("diff ")    ||
+                    line.startsWith("index ")   ||
+                    line.startsWith("new file") ||
+                    line.startsWith("deleted file") ||
+                    line.startsWith("@@")        -> Unit
+                    line.startsWith("-")         -> oldLines.add(line.drop(1))
+                    line.startsWith("+")         -> newLines.add(line.drop(1))
+                    line.startsWith("\\")        -> Unit
+                    else -> {
+                        val ctx = if (line.startsWith(" ")) line.drop(1) else line
+                        oldLines.add(ctx); newLines.add(ctx)
                     }
                 }
             }
 
-            val oldText = if (isNewFile) "" else oldLines.joinToString("\n")
-            val newText = if (isDeletedFile) "" else newLines.joinToString("\n")
-
-            val leftContent  = factory.create(project, oldText)
-            val rightContent = factory.create(project, newText)
-
-            val displayPath  = if (isNewFile) newPath else if (isDeletedFile) oldPath else newPath
-            val label        = when {
-                isNewFile     -> "✚ $displayPath"
-                isDeletedFile -> "✖ $displayPath"
-                oldPath != newPath -> "↷ $oldPath → $newPath"
-                else          -> displayPath
+            val displayPath = when {
+                isAdded   -> newPath
+                isDeleted -> oldPath
+                isRenamed -> "$oldPath → $newPath"
+                else      -> newPath
+            }
+            val statusTag = when {
+                isAdded   -> "ADDED"
+                isDeleted -> "DELETED"
+                isRenamed -> "RENAMED"
+                else      -> "MODIFIED"
             }
 
-            val request = SimpleDiffRequest(
-                "PR #${pr.id} — $label",
-                leftContent,
-                rightContent,
-                if (isNewFile) "(new file)" else "${pr.destination.branch.name}  (base)",
-                if (isDeletedFile) "(deleted)" else "${pr.source.branch.name}  (PR)"
-            )
-            requests.add(request)
+            entries.add(FileDiffEntry(
+                displayLabel = displayPath,
+                statusTag    = statusTag,
+                oldPath      = oldPath,
+                newPath      = newPath,
+                oldText      = if (isAdded) "" else oldLines.joinToString("\n"),
+                newText      = if (isDeleted) "" else newLines.joinToString("\n")
+            ))
         }
-
-        return requests
+        return entries
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // AI Summary
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private fun onAiSummary() {
         val pr = selectedPr() ?: return
@@ -320,71 +465,57 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         setStatus("Building AI summary for PR #${pr.id}…")
         runInBackground {
             try {
-                val diffStat    = service.getDiffStat(workspace, slug, pr.id)
+                val diffStat     = service.getDiffStat(workspace, slug, pr.id)
                 val changedFiles = diffStat.take(20).mapNotNull { it.newFile?.path ?: it.oldFile?.path }
-                val basePath    = project.basePath ?: ""
+                val basePath     = project.basePath ?: ""
                 val fileContents = changedFiles.joinToString("\n\n") { path ->
-                    val vFile = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
-                    val content = vFile?.let {
-                        try { String(it.contentsToByteArray()).take(3000) } catch (_: Exception) { "[unreadable]" }
-                    } ?: "[not found in local checkout]"
+                    val vf      = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
+                    val content = vf?.let { runCatching { String(it.contentsToByteArray()).take(3000) }.getOrElse { "[unreadable]" } }
+                        ?: "[not found locally]"
                     "### $path\n$content"
                 }
-                val prompt  = buildPrompt(pr, changedFiles, fileContents)
-                val summary = aiClient.generateSummary(prompt)
-                invokeLater {
-                    showSummaryDialog(pr, summary)
-                    setStatus("AI summary generated.")
-                }
+                val summary = aiClient.generateSummary(buildPrompt(pr, changedFiles, fileContents))
+                invokeLater { showSummaryDialog(pr, summary); setStatus("AI summary generated.") }
             } catch (e: Exception) {
-                invokeLater { setStatus("AI summary error: ${e.message}") }
+                invokeLater { setStatus("AI error: ${e.message}") }
             }
         }
     }
 
-    private fun buildPrompt(pr: PullRequest, files: List<String>, fileContents: String) = """
+    private fun buildPrompt(pr: PullRequest, files: List<String>, contents: String) = """
 Summarize the following pull request changes.
-Explain:
-- What was changed
-- Potential risks
-- Suggested improvements
-- Code quality concerns
+Explain: what was changed, potential risks, suggested improvements, code quality concerns.
 
 PR #${pr.id}: ${pr.title}
 Author: ${pr.author.displayName}
-Source branch: ${pr.source.branch.name} → ${pr.destination.branch.name}
+Branch: ${pr.source.branch.name} → ${pr.destination.branch.name}
 
 Changed files (${files.size}):
 ${files.joinToString("\n") { "  - $it" }}
 
-File contents:
-$fileContents
+$contents
 """.trimIndent()
 
     private fun showSummaryDialog(pr: PullRequest, summary: String) {
-        val textArea = JTextArea(summary).apply {
+        val ta = JTextArea(summary).apply {
             lineWrap = true; wrapStyleWord = true; isEditable = false
             font = Font(Font.MONOSPACED, Font.PLAIN, 13)
             border = JBUI.Borders.empty(8)
         }
-        JOptionPane.showMessageDialog(
-            this,
-            JBScrollPane(textArea).apply { preferredSize = Dimension(750, 520) },
-            "AI Summary — PR #${pr.id}: ${pr.title}",
-            JOptionPane.INFORMATION_MESSAGE
-        )
+        JOptionPane.showMessageDialog(this,
+            JBScrollPane(ta).apply { preferredSize = Dimension(750, 520) },
+            "AI Summary — PR #${pr.id}: ${pr.title}", JOptionPane.INFORMATION_MESSAGE)
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Approve / Decline
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private fun onApprove() {
         val pr = selectedPr() ?: return
         val (workspace, slug) = bitbucketRepo ?: return
-        if (Messages.showYesNoDialog(project,
-                "Approve PR #${pr.id}: \"${pr.title}\"?", "Confirm Approve",
-                Messages.getQuestionIcon()) != Messages.YES) return
+        if (Messages.showYesNoDialog(project, "Approve PR #${pr.id}: \"${pr.title}\"?",
+                "Confirm Approve", Messages.getQuestionIcon()) != Messages.YES) return
         setStatus("Approving PR #${pr.id}…")
         runInBackground {
             try {
@@ -397,9 +528,8 @@ $fileContents
     private fun onDecline() {
         val pr = selectedPr() ?: return
         val (workspace, slug) = bitbucketRepo ?: return
-        if (Messages.showYesNoDialog(project,
-                "Decline PR #${pr.id}: \"${pr.title}\"?", "Confirm Decline",
-                Messages.getWarningIcon()) != Messages.YES) return
+        if (Messages.showYesNoDialog(project, "Decline PR #${pr.id}: \"${pr.title}\"?",
+                "Confirm Decline", Messages.getWarningIcon()) != Messages.YES) return
         setStatus("Declining PR #${pr.id}…")
         runInBackground {
             try {
@@ -409,25 +539,25 @@ $fileContents
         }
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Helpers
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
-    private fun selectedPr(): PullRequest? {
-        return prList.selectedValue ?: run {
-            JOptionPane.showMessageDialog(this, "Please select a Pull Request first.",
-                "No Selection", JOptionPane.WARNING_MESSAGE)
-            null
-        }
+    private fun selectedPr(): PullRequest? = prList.selectedValue ?: run {
+        JOptionPane.showMessageDialog(this, "Please select a Pull Request first.",
+            "No Selection", JOptionPane.WARNING_MESSAGE); null
     }
 
-    private fun setStatus(msg: String) { statusLabel.text = " $msg" }
+    private fun setStatus(msg: String)    { statusLabel.text = " $msg" }
 
-    private fun notify(message: String, type: NotificationType) {
+    private fun notify(msg: String, type: NotificationType) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("PR Review Assistant")
-            .createNotification(message, type)
-            .notify(project)
+            .createNotification(msg, type).notify(project)
+    }
+
+    private fun makeActionButton(label: String, icon: Icon) = JButton(label, icon).apply {
+        horizontalAlignment = SwingConstants.LEFT; iconTextGap = 6
     }
 
     private fun runInBackground(block: () -> Unit) =
@@ -438,12 +568,10 @@ $fileContents
 }
 
 // =============================================================================
-// Beautiful Card-style PR List Renderer
+// PR Card Renderer (unchanged visual style)
 // =============================================================================
 
 private class PRCardRenderer : ListCellRenderer<PullRequest> {
-
-
     private val DATE_IN  = DateTimeFormatter.ISO_OFFSET_DATE_TIME
     private val DATE_OUT = DateTimeFormatter.ofPattern("MMM dd, yyyy")
 
@@ -452,73 +580,142 @@ private class PRCardRenderer : ListCellRenderer<PullRequest> {
         isSelected: Boolean, cellHasFocus: Boolean
     ): Component {
         val pr = value ?: return JLabel()
-
-        // ── outer card ───────────────────────────────────────────────────────
         val card = JPanel(BorderLayout(0, 2)).apply {
-            border = JBUI.Borders.empty(8, 12, 8, 12)
+            border     = JBUI.Borders.empty(8, 12, 8, 12)
             background = if (isSelected) list.selectionBackground else list.background
         }
-
-        // ── top row: ID badge + title + state pill ───────────────────────────
-        val topRow = JPanel(BorderLayout(8, 0)).apply { isOpaque = false }
-
-        val idBadge = JLabel("#${pr.id}").apply {
+        val topRow   = JPanel(BorderLayout(8, 0)).apply { isOpaque = false }
+        val idBadge  = JLabel("#${pr.id}").apply {
             font = Font(font.family, Font.BOLD, 11)
             foreground = JBColor(Color(0x0969DA), Color(0x58A6FF))
-            isOpaque = false
         }
-
-        val title = JLabel(pr.title).apply {
+        val titleLbl = JLabel(pr.title).apply {
             font = Font(font.family, Font.BOLD, 13)
             foreground = if (isSelected) list.selectionForeground else list.foreground
         }
-
         val titleRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
-            isOpaque = false
-            add(idBadge)
-            add(title)
+            isOpaque = false; add(idBadge); add(titleLbl)
         }
-
-        val statePill = StatePill(pr.state)
         topRow.add(titleRow, BorderLayout.CENTER)
-        topRow.add(statePill, BorderLayout.EAST)
-
-        // ── bottom row: branches + author + date ─────────────────────────────
-        val src  = pr.source.branch.name
-        val dest = pr.destination.branch.name
-        val branchText = if (src.isNotBlank() && dest.isNotBlank()) "$src  →  $dest" else ""
+        topRow.add(StatePill(pr.state), BorderLayout.EAST)
 
         val updatedText = pr.updatedOn.runCatching {
-            DATE_OUT.format(DATE_IN.parse(this))
-        }.getOrElse { pr.updatedOn.take(10) }
-
-        val metaText = buildString {
-            if (branchText.isNotBlank()) append(branchText)
+            DATE_OUT.format(DATE_IN.parse(this)) }.getOrElse { pr.updatedOn.take(10) }
+        val meta = buildString {
+            val b = pr.source.branch.name; val d = pr.destination.branch.name
+            if (b.isNotBlank() && d.isNotBlank()) append("$b  →  $d")
             if (pr.author.displayName.isNotBlank()) append("   ·   👤 ${pr.author.displayName}")
             if (updatedText.isNotBlank()) append("   ·   🕒 $updatedText")
             if (pr.commentCount > 0) append("   ·   💬 ${pr.commentCount}")
         }
-
-        val metaLabel = JLabel(metaText).apply {
-            font = Font(font.family, Font.PLAIN, 11)
-            foreground = JBColor.GRAY
+        val metaLbl = JLabel(meta).apply {
+            font = Font(font.family, Font.PLAIN, 11); foreground = JBColor.GRAY
         }
-
-        card.add(topRow,   BorderLayout.CENTER)
-        card.add(metaLabel, BorderLayout.SOUTH)
-
-        // ── separator line at the bottom ─────────────────────────────────────
-        val wrapper = JPanel(BorderLayout()).apply {
+        card.add(topRow, BorderLayout.CENTER)
+        card.add(metaLbl, BorderLayout.SOUTH)
+        return JPanel(BorderLayout()).apply {
             isOpaque = false
             add(card, BorderLayout.CENTER)
             add(JSeparator(), BorderLayout.SOUTH)
         }
-
-        return wrapper
     }
 }
 
-/** Rounded pill badge for PR state */
+// =============================================================================
+// File Entry Renderer — filename + status on row 1, package/dir on row 2
+// =============================================================================
+
+private class FileEntryRenderer : ListCellRenderer<FileDiffEntry> {
+
+    override fun getListCellRendererComponent(
+        list: JList<out FileDiffEntry>, value: FileDiffEntry?, index: Int,
+        isSelected: Boolean, cellHasFocus: Boolean
+    ): Component {
+        val entry = value ?: return JLabel()
+
+        val bg = if (isSelected) list.selectionBackground else list.background
+        val fg = if (isSelected) list.selectionForeground else list.foreground
+
+        // ── file icon ─────────────────────────────────────────────────────────
+        val ext      = entry.newPath.substringAfterLast('.', "")
+        val fileIcon = FileTypeManager.getInstance().getFileTypeByExtension(ext).icon
+            ?: AllIcons.FileTypes.Unknown
+
+        // ── status badge ──────────────────────────────────────────────────────
+        val (statusIcon, statusColor, statusBg) = when (entry.statusTag) {
+            "ADDED"   -> Triple(AllIcons.General.Add,     JBColor(Color(0x166534), Color(0x3FB950)), JBColor(Color(0xDCFCE7), Color(0x1A3325)))
+            "DELETED" -> Triple(AllIcons.General.Remove,  JBColor(Color(0x9F1239), Color(0xF85149)), JBColor(Color(0xFFE4E6), Color(0x3B1219)))
+            "RENAMED" -> Triple(AllIcons.Actions.Forward, JBColor(Color(0x0550AE), Color(0x58A6FF)), JBColor(Color(0xDEF0FF), Color(0x0D2847)))
+            else      -> Triple(AllIcons.Actions.Edit,    JBColor(Color(0x953800), Color(0xD29922)), JBColor(Color(0xFFF8E7), Color(0x2E1F00)))
+        }
+
+        // ── path split: filename vs directory ─────────────────────────────────
+        val displayPath = entry.displayLabel
+        val fileName    = displayPath.substringAfterLast('/').substringAfterLast('\\')
+        val dirPart     = displayPath.removeSuffix(fileName).trimEnd('/', '\\')
+
+        // ── ROW 1: file icon + bold filename + status pill on right ───────────
+        val fileNameLabel = JLabel(fileName).apply {
+            font        = Font(font.family, Font.BOLD, 13)
+            foreground  = fg
+            icon        = fileIcon
+            iconTextGap = 6
+        }
+
+        // Inline status pill (painted label with rounded bg)
+        val statusPill = object : JLabel(entry.statusTag) {
+            init {
+                icon        = statusIcon
+                iconTextGap = 4
+                font        = Font(font.family, Font.BOLD, 10)
+                foreground  = statusColor
+                border      = JBUI.Borders.empty(2, 7, 2, 7)
+                isOpaque    = false
+            }
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = statusBg
+                g2.fillRoundRect(0, 0, width, height, height, height)
+                super.paintComponent(g)
+            }
+        }
+
+        val topRow = JPanel(BorderLayout(0, 0)).apply {
+            isOpaque = false
+            add(fileNameLabel, BorderLayout.CENTER)
+            val pillWrap = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply { isOpaque = false; add(statusPill) }
+            add(pillWrap, BorderLayout.EAST)
+        }
+
+        // ── ROW 2: directory / package path ───────────────────────────────────
+        val dirLabel = JLabel(if (dirPart.isNotBlank()) dirPart else "· root").apply {
+            font       = Font(font.family, Font.PLAIN, 11)
+            foreground = JBColor.GRAY
+            border     = JBUI.Borders.empty(1, 22, 0, 0)   // indent to align under filename (icon width ≈ 16 + 6 gap)
+        }
+
+        // ── Card ──────────────────────────────────────────────────────────────
+        val card = JPanel(BorderLayout(0, 3)).apply {
+            border     = JBUI.Borders.empty(8, 12, 8, 12)
+            background = bg
+            isOpaque   = true
+            add(topRow,   BorderLayout.CENTER)
+            add(dirLabel, BorderLayout.SOUTH)
+        }
+
+        return JPanel(BorderLayout()).apply {
+            isOpaque = false
+            add(card, BorderLayout.CENTER)
+            add(JSeparator(), BorderLayout.SOUTH)
+        }
+    }
+}
+
+// =============================================================================
+// State Pill (reused by both renderers)
+// =============================================================================
+
 private class StatePill(state: String) : JComponent() {
     private val label = state.uppercase()
     private val bg: Color = when (label) {
@@ -533,23 +730,13 @@ private class StatePill(state: String) : JComponent() {
         "DECLINED" -> JBColor(Color(0x9F1239), Color(0xF85149))
         else       -> JBColor.GRAY
     }
-
-    init {
-        preferredSize = Dimension(72, 20)
-        isOpaque = false
-        toolTipText = label
-    }
-
+    init { preferredSize = Dimension(72, 20); isOpaque = false; toolTipText = label }
     override fun paintComponent(g: Graphics) {
         val g2 = g as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        g2.color = bg
-        g2.fillRoundRect(0, 0, width, height, height, height)
-        g2.color = fg
-        g2.font = Font(font.family, Font.BOLD, 10)
+        g2.color = bg; g2.fillRoundRect(0, 0, width, height, height, height)
+        g2.color = fg; g2.font = Font(font.family, Font.BOLD, 10)
         val fm = g2.fontMetrics
-        val tx = (width - fm.stringWidth(label)) / 2
-        val ty = (height + fm.ascent - fm.descent) / 2
-        g2.drawString(label, tx, ty)
+        g2.drawString(label, (width - fm.stringWidth(label)) / 2, (height + fm.ascent - fm.descent) / 2)
     }
 }
