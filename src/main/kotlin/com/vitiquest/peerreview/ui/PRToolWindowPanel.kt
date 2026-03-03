@@ -22,12 +22,14 @@ import com.intellij.util.ui.JBUI
 import com.vitiquest.peerreview.ai.OpenAIClient
 import com.vitiquest.peerreview.bitbucket.PullRequest
 import com.vitiquest.peerreview.bitbucket.PullRequestService
+import com.vitiquest.peerreview.settings.PluginSettings
 import com.vitiquest.peerreview.utils.GitUtils
 import java.awt.*
 import java.io.File
 import java.time.format.DateTimeFormatter
 import javax.swing.*
 import javax.swing.border.MatteBorder
+import javax.swing.Timer
 
 // ---------------------------------------------------------------------------
 // Data class holding a parsed per-file diff entry
@@ -54,6 +56,9 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var bitbucketRepo: Pair<String, String>? = null
     private var currentPr: PullRequest?       = null
     private var currentFileEntries: List<FileDiffEntry> = emptyList()
+
+    // prId → number of changed files (populated when diff is fetched)
+    private val prFileCount = mutableMapOf<Int, Int>()
 
     // ── status bar (shared across both views) ─────────────────────────────────
     private val statusLabel = JBLabel("Ready")
@@ -135,7 +140,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         gbc.gridx = 7; topPanel.add(filterBtn, gbc)
 
         // list
-        prList.cellRenderer = PRCardRenderer()
+        prList.cellRenderer = PRCardRenderer(prFileCount)
         prList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         prList.fixedCellHeight = -1
         prList.background = JBColor.PanelBackground
@@ -236,7 +241,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         breadcrumbBar.repaint()
     }
 
-    private fun updateBreadcrumb(pr: PullRequest) {
+    private fun updateBreadcrumb(pr: PullRequest, fileCount: Int) {
         breadcrumbBar.removeAll()
 
         val prLabel = JBLabel("PR #${pr.id}  —  ${pr.title}").apply {
@@ -255,8 +260,16 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
             add(prLabel)
             add(branchLabel)
         }
-        val rightWrap = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 6)).apply {
+
+        // Right side: file count chip + state pill
+        val fileCountLabel = JBLabel("📄 $fileCount file${if (fileCount == 1) "" else "s"} changed").apply {
+            font       = Font(font.family, Font.PLAIN, 11)
+            foreground = JBColor.GRAY
+            border     = JBUI.Borders.empty(0, 0, 0, 8)
+        }
+        val rightWrap = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 6)).apply {
             isOpaque = false
+            add(fileCountLabel)
             add(StatePill(pr.state))
         }
         breadcrumbBar.add(left,      BorderLayout.CENTER)
@@ -285,9 +298,12 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun showFileListView(pr: PullRequest, entries: List<FileDiffEntry>) {
         currentPr          = pr
         currentFileEntries = entries
+        // Cache file count so PR cards can show it
+        prFileCount[pr.id] = entries.size
+        prList.repaint()
         fileListModel.clear()
         entries.forEach { fileListModel.addElement(it) }
-        updateBreadcrumb(pr)
+        updateBreadcrumb(pr, entries.size)
         setStatus("${entries.size} file(s) changed in PR #${pr.id}.")
         cardLayout.show(cardPanel, CARD_FILES)
     }
@@ -297,11 +313,17 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
     // =========================================================================
 
     private fun detectRepo() {
-        val repo = GitUtils.detectBitbucketRepo(project)
-        if (repo == null) { setStatus("⚠ No Bitbucket remote found for this project."); return }
-        bitbucketRepo = repo.workspace to repo.repoSlug
-        setStatus("📦 ${repo.workspace}/${repo.repoSlug}")
-        loadPullRequests()
+        runInBackground {
+            // Warm up PasswordSafe cache off EDT before anything else touches secrets
+            PluginSettings.instance.warmUpSecretsCache()
+            invokeLater {
+                val repo = GitUtils.detectBitbucketRepo(project)
+                if (repo == null) { setStatus("⚠ No Bitbucket remote found for this project."); return@invokeLater }
+                bitbucketRepo = repo.workspace to repo.repoSlug
+                setStatus("📦 ${repo.workspace}/${repo.repoSlug}")
+                loadPullRequests()
+            }
+        }
     }
 
     // =========================================================================
@@ -483,28 +505,286 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun buildPrompt(pr: PullRequest, files: List<String>, contents: String) = """
-Summarize the following pull request changes.
-Explain: what was changed, potential risks, suggested improvements, code quality concerns.
+You are a senior code reviewer. Produce a PR review summary in README markdown format.
 
-PR #${pr.id}: ${pr.title}
-Author: ${pr.author.displayName}
-Branch: ${pr.source.branch.name} → ${pr.destination.branch.name}
+Structure your response EXACTLY like this:
 
-Changed files (${files.size}):
-${files.joinToString("\n") { "  - $it" }}
+# PR #${pr.id}: ${pr.title}
 
+**Author:** ${pr.author.displayName}
+**Branch:** `${pr.source.branch.name}` → `${pr.destination.branch.name}`
+**Files changed:** ${files.size}
+
+---
+
+## Overview
+
+<2-3 sentence summary of the overall purpose of this PR>
+
+---
+
+## File Analysis
+
+For EACH file below, write a section in this exact format:
+
+### `<filename>`
+**Impact:** <LOW | MEDIUM | HIGH>
+**Change type:** <ADDED | MODIFIED | DELETED | REFACTOR | BUGFIX | CONFIG>
+
+**What changed:**
+<concise description>
+
+**Risks:**
+<bullet list of risks, or "None identified">
+
+**Suggestions:**
+<bullet list of improvement suggestions, or "None">
+
+---
+
+## Summary
+
+| File | Impact | Change Type |
+|------|--------|-------------|
+<one row per file>
+
+---
+
+Files to analyse:
 $contents
 """.trimIndent()
 
     private fun showSummaryDialog(pr: PullRequest, summary: String) {
-        val ta = JTextArea(summary).apply {
-            lineWrap = true; wrapStyleWord = true; isEditable = false
-            font = Font(Font.MONOSPACED, Font.PLAIN, 13)
-            border = JBUI.Borders.empty(8)
+        val html = markdownToHtml(summary)
+
+        // Resolve theme colours
+        val uiFont    = com.intellij.util.ui.UIUtil.getLabelFont()
+        val bgColor   = com.intellij.util.ui.UIUtil.getPanelBackground()
+        val fgColor   = com.intellij.util.ui.UIUtil.getLabelForeground()
+        val isDark    = !JBColor.isBright()
+        val codeBg    = if (isDark) "#2B2B2B" else "#F5F5F5"
+        val borderClr = if (isDark) "#555555" else "#CCCCCC"
+        val fg        = "#${fgColor.toHex()}"
+        val bg        = "#${bgColor.toHex()}"
+        val fontPt    = uiFont.size
+        val fontFam   = uiFont.family
+
+        // Build a stylesheet using ONLY properties Swing HTMLEditorKit understands.
+        // Critically: no border-radius, no white-space, no word-wrap, no nth-child,
+        // no shorthand margin/padding with multiple values (use margin-top etc. separately).
+        val css = buildString {
+            append("body { font-family: $fontFam; font-size: ${fontPt}pt; color: $fg; background-color: $bg; }")
+            append("h1 { font-size: ${(fontPt * 1.8).toInt()}pt; color: $fg; }")
+            append("h2 { font-size: ${(fontPt * 1.4).toInt()}pt; color: $fg; margin-top: 14px; }")
+            append("h3 { font-size: ${(fontPt * 1.1).toInt()}pt; color: $fg; margin-top: 10px; }")
+            append("p  { margin-top: 4px; margin-bottom: 4px; }")
+            append("code { font-family: monospace; font-size: ${fontPt - 1}pt; background-color: $codeBg; color: $fg; }")
+            append("pre  { font-family: monospace; font-size: ${fontPt - 1}pt; background-color: $codeBg; color: $fg; margin-top: 6px; margin-bottom: 6px; }")
+            append("table { border-spacing: 0; }")
+            append("th { font-weight: bold; background-color: $codeBg; color: $fg; border-color: $borderClr; padding-top: 4px; padding-bottom: 4px; padding-left: 8px; padding-right: 8px; }")
+            append("td { color: $fg; border-color: $borderClr; padding-top: 3px; padding-bottom: 3px; padding-left: 8px; padding-right: 8px; }")
+            append("ul { margin-left: 20px; }")
+            append("ol { margin-left: 20px; }")
+            append("li { margin-bottom: 2px; }")
+            append("strong { font-weight: bold; }")
+            append("em { font-style: italic; }")
+            append("blockquote { color: #888888; margin-left: 16px; }")
+            append("hr { color: $borderClr; }")
         }
-        JOptionPane.showMessageDialog(this,
-            JBScrollPane(ta).apply { preferredSize = Dimension(750, 520) },
-            "AI Summary — PR #${pr.id}: ${pr.title}", JOptionPane.INFORMATION_MESSAGE)
+
+        // Inject CSS via StyleSheet so the parser never sees CSS3 tokens
+        val kit = javax.swing.text.html.HTMLEditorKit()
+        val styleSheet = kit.styleSheet
+        styleSheet.addRule(css)
+
+        val doc = kit.createDefaultDocument() as javax.swing.text.html.HTMLDocument
+
+        val textPane = JTextPane().apply {
+            editorKit  = kit
+            document   = doc
+            isEditable = false
+            background = bgColor
+        }
+
+        // Set content AFTER kit+doc are wired — avoids a second CSS parse of the <style> block
+        val bareHtml = "<html><body>$html</body></html>"
+        textPane.text = bareHtml
+        textPane.caretPosition = 0
+
+        val scroll = JBScrollPane(textPane).apply {
+            preferredSize             = Dimension(960, 700)
+            verticalScrollBarPolicy   = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+
+        val copyMdBtn = JButton("Copy Markdown").apply {
+            addActionListener {
+                copyToClipboard(summary)
+                text = "✓ Copied!"
+                Timer(1500) { text = "Copy Markdown" }.also { t -> t.isRepeats = false; t.start() }
+            }
+        }
+
+        val south = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 6)).apply {
+            add(JBLabel("Rendered markdown preview").apply {
+                foreground = JBColor.GRAY
+                font = Font(font.family, Font.ITALIC, 11)
+            })
+            add(copyMdBtn)
+        }
+
+        val dialog = JDialog(
+            SwingUtilities.getWindowAncestor(this),
+            "AI Summary — PR #${pr.id}: ${pr.title}",
+            java.awt.Dialog.ModalityType.APPLICATION_MODAL
+        ).apply {
+            contentPane = JPanel(BorderLayout()).apply {
+                add(scroll, BorderLayout.CENTER)
+                add(south,  BorderLayout.SOUTH)
+            }
+            pack()
+            setLocationRelativeTo(this@PRToolWindowPanel)
+            minimumSize = Dimension(700, 500)
+            isResizable  = true
+        }
+        dialog.isVisible = true
+    }
+
+    // =========================================================================
+    // Lightweight Markdown → HTML converter
+    // Handles all patterns the AI summary prompt generates.
+    // =========================================================================
+
+    private fun markdownToHtml(md: String): String {
+        val lines  = md.lines()
+        val sb     = StringBuilder()
+        var inPre  = false
+        var inUl   = false
+        var inOl   = false
+        var inTable = false
+
+        fun closeLists() {
+            if (inUl)  { sb.append("</ul>\n");  inUl  = false }
+            if (inOl)  { sb.append("</ol>\n");  inOl  = false }
+        }
+        fun closeTable() {
+            if (inTable) { sb.append("</table>\n"); inTable = false }
+        }
+
+        for (raw in lines) {
+            val line = raw.trimEnd()
+
+            // ── Fenced code block ─────────────────────────────────────────────
+            if (line.startsWith("```")) {
+                closeLists(); closeTable()
+                if (!inPre) { sb.append("<pre>"); inPre = true }
+                else        { sb.append("</pre>\n"); inPre = false }
+                continue
+            }
+            if (inPre) { sb.append(line.escapeHtml()).append("\n"); continue }
+
+            // ── Headings ──────────────────────────────────────────────────────
+            val h3 = Regex("^### (.+)").find(line)
+            val h2 = Regex("^## (.+)").find(line)
+            val h1 = Regex("^# (.+)").find(line)
+            when {
+                h1 != null -> { closeLists(); closeTable()
+                    sb.append("<h1>${h1.groupValues[1].inline()}</h1>\n"); continue }
+                h2 != null -> { closeLists(); closeTable()
+                    sb.append("<h2>${h2.groupValues[1].inline()}</h2>\n"); continue }
+                h3 != null -> { closeLists(); closeTable()
+                    sb.append("<h3>${h3.groupValues[1].inline()}</h3>\n"); continue }
+            }
+
+            // ── HR ────────────────────────────────────────────────────────────
+            if (line.matches(Regex("^-{3,}|\\*{3,}|_{3,}$"))) {
+                closeLists(); closeTable()
+                sb.append("<hr/>\n"); continue
+            }
+
+            // ── Table row ─────────────────────────────────────────────────────
+            if (line.startsWith("|")) {
+                closeLists()
+                val cells = line.split("|").drop(1).dropLast(1)
+                // Separator row (|---|---|)
+                if (cells.all { it.trim().matches(Regex(":-*:?")) }) continue
+                if (!inTable) {
+                    sb.append("<table>\n")
+                    inTable = true
+                    // First row → header
+                    sb.append("<tr>")
+                    cells.forEach { sb.append("<th>${it.trim().inline()}</th>") }
+                    sb.append("</tr>\n")
+                } else {
+                    sb.append("<tr>")
+                    cells.forEach { sb.append("<td>${it.trim().inline()}</td>") }
+                    sb.append("</tr>\n")
+                }
+                continue
+            } else {
+                closeTable()
+            }
+
+            // ── Unordered list ────────────────────────────────────────────────
+            val ulMatch = Regex("^([-*+]) (.+)").find(line)
+            if (ulMatch != null) {
+                if (inOl) { sb.append("</ol>\n"); inOl = false }
+                if (!inUl) { sb.append("<ul>\n"); inUl = true }
+                sb.append("<li>${ulMatch.groupValues[2].inline()}</li>\n"); continue
+            }
+
+            // ── Ordered list ──────────────────────────────────────────────────
+            val olMatch = Regex("^\\d+\\. (.+)").find(line)
+            if (olMatch != null) {
+                if (inUl) { sb.append("</ul>\n"); inUl = false }
+                if (!inOl) { sb.append("<ol>\n"); inOl = true }
+                sb.append("<li>${olMatch.groupValues[1].inline()}</li>\n"); continue
+            }
+
+            // ── Blockquote ────────────────────────────────────────────────────
+            val bqMatch = Regex("^> (.+)").find(line)
+            if (bqMatch != null) {
+                closeLists(); closeTable()
+                sb.append("<blockquote>${bqMatch.groupValues[1].inline()}</blockquote>\n"); continue
+            }
+
+            // ── Blank line ────────────────────────────────────────────────────
+            if (line.isBlank()) {
+                closeLists(); closeTable()
+                sb.append("<br/>\n"); continue
+            }
+
+            // ── Plain paragraph ───────────────────────────────────────────────
+            closeLists(); closeTable()
+            sb.append("<p>${line.inline()}</p>\n")
+        }
+
+        closeLists(); closeTable()
+        if (inPre) sb.append("</pre>\n")
+        return sb.toString()
+    }
+
+    /** Inline markdown: bold, italic, inline code, links */
+    private fun String.inline(): String = this
+        .escapeHtml()
+        .replace(Regex("`([^`]+)`"),        "<code>$1</code>")
+        .replace(Regex("\\*\\*([^*]+)\\*\\*"), "<strong>$1</strong>")
+        .replace(Regex("__([^_]+)__"),        "<strong>$1</strong>")
+        .replace(Regex("\\*([^*]+)\\*"),      "<em>$1</em>")
+        .replace(Regex("_([^_]+)_"),          "<em>$1</em>")
+        .replace(Regex("\\[([^]]+)]\\(([^)]+)\\)"), "<a href=\"$2\">$1</a>")
+
+    private fun String.escapeHtml(): String = this
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+
+    private fun java.awt.Color.toHex(): String =
+        "%02X%02X%02X".format(red, green, blue)
+
+    private fun copyToClipboard(text: String) {
+        java.awt.Toolkit.getDefaultToolkit().systemClipboard
+            .setContents(java.awt.datatransfer.StringSelection(text), null)
     }
 
     // =========================================================================
