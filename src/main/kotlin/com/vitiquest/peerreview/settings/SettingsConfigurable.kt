@@ -236,30 +236,37 @@ class SettingsConfigurable : Configurable {
     override fun apply() {
         val s = PluginSettings.instance
 
-        // Secrets — setBitbucketPat/setOpenAiKey update the cache AND
-        // write to PasswordSafe. Writing is fine here because apply() is
-        // triggered by the user clicking OK/Apply, which is allowed to be slow.
-        val pat = String(bitbucketPatField.password)
-        if (pat.isNotBlank()) s.setBitbucketPat(pat)
-
-        s.aiProvider = when (providerCombo.selectedIndex) {
+        // Capture all values from UI fields on EDT (safe — just reading Swing components)
+        val pat        = String(bitbucketPatField.password)
+        val openAiKey  = String(openAiKeyField.password)
+        val compatKey  = String(compatKeyField.password)
+        val provider   = when (providerCombo.selectedIndex) {
             1    -> AiProvider.OPENAI_COMPATIBLE
             2    -> AiProvider.OLLAMA
             else -> AiProvider.OPENAI
         }
+        val openAiModel    = openAiModelField.text.trim().ifBlank { "gpt-4o" }
+        val compatBaseUrl  = compatBaseUrlField.text.trim().ifBlank { "https://api.openai.com" }
+        val compatModel    = compatModelField.text.trim().ifBlank { "gpt-4o" }
+        val ollamaBaseUrl  = ollamaBaseUrlField.text.trim().ifBlank { "http://localhost:11434" }
+        val ollamaModel    = ollamaModelField.text.trim().ifBlank { "llama3" }
+        val systemPrompt   = systemPromptArea.text
 
-        val openAiKey = String(openAiKeyField.password)
-        if (openAiKey.isNotBlank()) s.setOpenAiKey(openAiKey)
-        s.openAiModel = openAiModelField.text.trim().ifBlank { "gpt-4o" }
+        // Apply non-secret settings immediately (just in-memory writes, safe on EDT)
+        s.aiProvider         = provider
+        s.openAiModel        = openAiModel
+        s.openAiCompatBaseUrl = compatBaseUrl
+        s.openAiCompatModel  = compatModel
+        s.ollamaBaseUrl      = ollamaBaseUrl
+        s.ollamaModel        = ollamaModel
+        s.systemPrompt       = systemPrompt
 
-        val compatKey = String(compatKeyField.password)
-        if (compatKey.isNotBlank()) s.setOpenAiCompatKey(compatKey)
-        s.openAiCompatBaseUrl = compatBaseUrlField.text.trim().ifBlank { "https://api.openai.com" }
-        s.openAiCompatModel   = compatModelField.text.trim().ifBlank { "gpt-4o" }
-
-        s.ollamaBaseUrl = ollamaBaseUrlField.text.trim().ifBlank { "http://localhost:11434" }
-        s.ollamaModel   = ollamaModelField.text.trim().ifBlank { "llama3" }
-        s.systemPrompt  = systemPromptArea.text
+        // Write secrets off-EDT — PasswordSafe I/O is a slow operation forbidden on EDT
+        ApplicationManager.getApplication().executeOnPooledThread {
+            if (pat.isNotBlank())       s.setBitbucketPat(pat)
+            if (openAiKey.isNotBlank()) s.setOpenAiKey(openAiKey)
+            if (compatKey.isNotBlank()) s.setOpenAiCompatKey(compatKey)
+        }
     }
 
     override fun reset() {

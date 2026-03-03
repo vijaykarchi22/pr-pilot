@@ -8,6 +8,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
@@ -46,10 +47,12 @@ data class FileDiffEntry(
 // ---------------------------------------------------------------------------
 // Main panel – uses CardLayout to switch between PR list and File list views
 // ---------------------------------------------------------------------------
-class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
+class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), com.intellij.openapi.Disposable {
 
     private val service  = PullRequestService()
     private val aiClient = OpenAIClient()
+
+    @Volatile private var disposed = false
 
     // ── shared state ─────────────────────────────────────────────────────────
     private var allPrs: List<PullRequest>     = emptyList()
@@ -371,10 +374,11 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     private fun detectRepo() {
         runInBackground {
-            // Warm up PasswordSafe cache off EDT before anything else touches secrets
+            // Both warmUpSecretsCache() and detectBitbucketRepo() are slow I/O operations
+            // — keep them both on the background thread. Only the UI update goes on EDT.
             PluginSettings.instance.warmUpSecretsCache()
+            val repo = GitUtils.detectBitbucketRepo(project)
             invokeLater {
-                val repo = GitUtils.detectBitbucketRepo(project)
                 if (repo == null) { setStatus("⚠ No Bitbucket remote found for this project."); return@invokeLater }
                 bitbucketRepo = repo.workspace to repo.repoSlug
                 setStatus("📦 ${repo.workspace}/${repo.repoSlug}")
@@ -390,11 +394,11 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun loadPullRequests() {
         val (workspace, slug) = bitbucketRepo ?: run { setStatus("⚠ Repository not detected."); return }
         val selectedState = stateFilter.selectedItem as String
-        val state = if (selectedState == "ALL") "OPEN&state=MERGED&state=DECLINED" else selectedState
         setStatus("Loading pull requests…")
         runInBackground {
             try {
-                val prs = service.getPullRequests(workspace, slug, state)
+                // Pass selectedState directly — BitbucketClient handles "ALL" correctly
+                val prs = service.getPullRequests(workspace, slug, selectedState)
                 allPrs = prs
                 invokeLater { applyFilter(); setStatus("${prs.size} PR(s) loaded.") }
             } catch (e: Exception) {
@@ -456,8 +460,19 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         val factory = DiffContentFactory.getInstance()
-        val leftContent  = factory.create(project, entry.oldText)
-        val rightContent = factory.create(project, entry.newText)
+
+        // Detect file type for syntax highlighting — use the non-deleted path
+        val filePath = if (entry.statusTag == "DELETED") entry.oldPath else entry.newPath
+        val ext = filePath.substringAfterLast('.', "")
+        val fileType = FileTypeManager.getInstance().getFileTypeByExtension(ext)
+
+        // DiffContentFactory.create(project, text, fileType) must run inside a read action
+        val leftContent  = com.intellij.openapi.application.ReadAction.compute<com.intellij.diff.contents.DiffContent, Exception> {
+            factory.create(project, entry.oldText, fileType)
+        }
+        val rightContent = com.intellij.openapi.application.ReadAction.compute<com.intellij.diff.contents.DiffContent, Exception> {
+            factory.create(project, entry.newText, fileType)
+        }
 
         val leftTitle  = when (entry.statusTag) {
             "ADDED"   -> "(new file)"
@@ -510,14 +525,18 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
         for (patch in filePatches) {
             val lines = patch.lines()
 
+            // Strip the leading a/ or b/ prefix; null-safe with empty fallback
             val oldPath = lines.firstOrNull { it.startsWith("--- ") }
-                ?.removePrefix("--- ")?.removePrefix("a/")?.trim() ?: "unknown"
+                ?.removePrefix("--- ")?.removePrefix("a/")?.trim()
+                ?.takeIf { it.isNotBlank() } ?: ""
             val newPath = lines.firstOrNull { it.startsWith("+++ ") }
-                ?.removePrefix("+++ ")?.removePrefix("b/")?.trim() ?: "unknown"
+                ?.removePrefix("+++ ")?.removePrefix("b/")?.trim()
+                ?.takeIf { it.isNotBlank() } ?: ""
 
-            val isAdded   = oldPath == "/dev/null" || oldPath == "dev/null"
-            val isDeleted = newPath == "/dev/null" || newPath == "dev/null"
-            val isRenamed = !isAdded && !isDeleted && oldPath != newPath
+            // /dev/null signals an added or deleted file (with or without leading slash)
+            val isAdded   = oldPath.endsWith("/dev/null") || oldPath == "/dev/null" || oldPath == "dev/null"
+            val isDeleted = newPath.endsWith("/dev/null") || newPath == "/dev/null" || newPath == "dev/null"
+            val isRenamed = !isAdded && !isDeleted && oldPath.isNotBlank() && newPath.isNotBlank() && oldPath != newPath
 
             val oldLines = mutableListOf<String>()
             val newLines = mutableListOf<String>()
@@ -542,10 +561,11 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
             }
 
             val displayPath = when {
-                isAdded   -> newPath
-                isDeleted -> oldPath
-                isRenamed -> "$oldPath → $newPath"
-                else      -> newPath
+                isAdded                    -> newPath.ifBlank { oldPath }
+                isDeleted                  -> oldPath.ifBlank { newPath }
+                isRenamed                  -> "$oldPath → $newPath"
+                newPath.isNotBlank()       -> newPath
+                else                       -> oldPath.ifBlank { "(unknown)" }
             }
             val statusTag = when {
                 isAdded   -> "ADDED"
@@ -579,12 +599,20 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()) {
                 val diffStat     = service.getDiffStat(workspace, slug, pr.id)
                 val changedFiles = diffStat.take(20).mapNotNull { it.newFile?.path ?: it.oldFile?.path }
                 val basePath     = project.basePath ?: ""
+
+                // VFS access (findFileByIoFile + contentsToByteArray) must be
+                // wrapped in a ReadAction even on a background thread.
                 val fileContents = changedFiles.joinToString("\n\n") { path ->
-                    val vf      = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
-                    val content = vf?.let { runCatching { String(it.contentsToByteArray()).take(3000) }.getOrElse { "[unreadable]" } }
-                        ?: "[not found locally]"
+                    val content = ReadAction.compute<String, Exception> {
+                        val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
+                        vf?.let {
+                            runCatching { String(it.contentsToByteArray()).take(3000) }
+                                .getOrElse { "[unreadable]" }
+                        } ?: "[not found locally]"
+                    }
                     "### $path\n$content"
                 }
+
                 val summary = aiClient.generateSummary(buildPrompt(pr, changedFiles, fileContents))
                 invokeLater { showSummaryDialog(pr, summary); setStatus("AI summary generated.") }
             } catch (e: Exception) {
@@ -652,15 +680,15 @@ $contents
         val fgColor   = com.intellij.util.ui.UIUtil.getLabelForeground()
         val isDark    = !JBColor.isBright()
         val codeBg    = if (isDark) "#2B2B2B" else "#F5F5F5"
-        val borderClr = if (isDark) "#555555" else "#CCCCCC"
         val fg        = "#${fgColor.toHex()}"
         val bg        = "#${bgColor.toHex()}"
         val fontPt    = uiFont.size
         val fontFam   = uiFont.family
 
-        // Build a stylesheet using ONLY properties Swing HTMLEditorKit understands.
-        // Critically: no border-radius, no white-space, no word-wrap, no nth-child,
-        // no shorthand margin/padding with multiple values (use margin-top etc. separately).
+        // Build a stylesheet using ONLY CSS1/CSS2 properties Swing HTMLEditorKit understands.
+        // NEVER use: border-color, border-spacing, border-radius, white-space, word-wrap,
+        // nth-child, or any shorthand with more than one value — they cause NullPointerExceptions
+        // inside Swing's CssValue.parseCssValue().
         val css = buildString {
             append("body { font-family: $fontFam; font-size: ${fontPt}pt; color: $fg; background-color: $bg; }")
             append("h1 { font-size: ${(fontPt * 1.8).toInt()}pt; color: $fg; }")
@@ -669,16 +697,16 @@ $contents
             append("p  { margin-top: 4px; margin-bottom: 4px; }")
             append("code { font-family: monospace; font-size: ${fontPt - 1}pt; background-color: $codeBg; color: $fg; }")
             append("pre  { font-family: monospace; font-size: ${fontPt - 1}pt; background-color: $codeBg; color: $fg; margin-top: 6px; margin-bottom: 6px; }")
-            append("table { border-spacing: 0; }")
-            append("th { font-weight: bold; background-color: $codeBg; color: $fg; border-color: $borderClr; padding-top: 4px; padding-bottom: 4px; padding-left: 8px; padding-right: 8px; }")
-            append("td { color: $fg; border-color: $borderClr; padding-top: 3px; padding-bottom: 3px; padding-left: 8px; padding-right: 8px; }")
+            // border-spacing and border-color are CSS2/3 and not handled by Swing — omit them
+            append("table { }")
+            append("th { font-weight: bold; background-color: $codeBg; color: $fg; padding-top: 4px; padding-bottom: 4px; padding-left: 8px; padding-right: 8px; }")
+            append("td { color: $fg; padding-top: 3px; padding-bottom: 3px; padding-left: 8px; padding-right: 8px; }")
             append("ul { margin-left: 20px; }")
             append("ol { margin-left: 20px; }")
             append("li { margin-bottom: 2px; }")
             append("strong { font-weight: bold; }")
             append("em { font-style: italic; }")
             append("blockquote { color: #888888; margin-left: 16px; }")
-            append("hr { color: $borderClr; }")
         }
 
         // Inject CSS via StyleSheet so the parser never sees CSS3 tokens
@@ -795,8 +823,8 @@ $contents
             if (line.startsWith("|")) {
                 closeLists()
                 val cells = line.split("|").drop(1).dropLast(1)
-                // Separator row (|---|---|)
-                if (cells.all { it.trim().matches(Regex(":-*:?")) }) continue
+                // Separator row (|---|---| or |:---:|:---:|)
+                if (cells.all { it.trim().matches(Regex("^:?-+:?$")) }) continue
                 if (!inTable) {
                     sb.append("<table>\n")
                     inTable = true
@@ -929,11 +957,27 @@ $contents
         horizontalAlignment = SwingConstants.LEFT; iconTextGap = 6
     }
 
-    private fun runInBackground(block: () -> Unit) =
+    private fun runInBackground(block: () -> Unit) {
+        if (disposed) return
         ApplicationManager.getApplication().executeOnPooledThread(block)
+    }
 
-    private fun invokeLater(block: () -> Unit) =
-        ApplicationManager.getApplication().invokeLater(block)
+    private fun invokeLater(block: () -> Unit) {
+        if (disposed) return
+        ApplicationManager.getApplication().invokeLater {
+            if (!disposed) block()
+        }
+    }
+
+    // =========================================================================
+    // Disposable — called when the tool window content is removed
+    // =========================================================================
+
+    override fun dispose() {
+        disposed = true
+        // Drop all Window references so they can be GC'd
+        openDiffWindows.clear()
+    }
 }
 
 // =============================================================================

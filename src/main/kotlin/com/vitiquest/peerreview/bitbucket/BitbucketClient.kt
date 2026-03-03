@@ -10,16 +10,36 @@ import java.io.IOException
 
 class BitbucketClient(private val pat: String) {
 
-    private val http = OkHttpClient()
     private val mapper = jacksonObjectMapper()
     private val base = "https://api.bitbucket.org/2.0"
+
+    companion object {
+        /**
+         * Shared OkHttpClient — one instance for the entire plugin lifetime.
+         * OkHttp internally manages a thread pool and connection pool; creating
+         * a new instance per request leaks both.
+         */
+        val http: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Pull Requests
     // -------------------------------------------------------------------------
 
     fun getPullRequests(workspace: String, repoSlug: String, state: String = "OPEN"): List<PullRequest> {
-        val url = "$base/repositories/$workspace/$repoSlug/pullrequests?state=$state&pagelen=20"
+        // "ALL" must be expressed as three separate state params — embedding raw
+        // query fragments inside a single param value produces a malformed URL.
+        val stateParams = when (state.uppercase()) {
+            "ALL"  -> "state=OPEN&state=MERGED&state=DECLINED"
+            else   -> "state=${state.uppercase()}"
+        }
+        val url = "$base/repositories/$workspace/$repoSlug/pullrequests?$stateParams&pagelen=20"
         val response = get(url)
         val parsed: PullRequestsResponse = mapper.readValue(response)
         return parsed.values
@@ -84,10 +104,13 @@ class BitbucketClient(private val pat: String) {
 
     private fun execute(request: Request): String {
         http.newCall(request).execute().use { response ->
+            // Always read the body inside use{} — reading it outside would close the connection prematurely
+            val bodyText = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                throw IOException("Bitbucket API error ${response.code}: ${response.body?.string()}")
+                val snippet = bodyText.take(300)
+                throw IOException("Bitbucket API error ${response.code}: $snippet")
             }
-            return response.body?.string() ?: ""
+            return bodyText
         }
     }
 }
