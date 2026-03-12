@@ -8,17 +8,23 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
-class BitbucketClient(private val pat: String) {
+/**
+ * @param pat  Bitbucket Repository / Project / Workspace Access Token
+ *             (generated under Repository settings → Access tokens  OR
+ *              Workspace settings → Access tokens).
+ *
+ * These tokens use HTTP Bearer auth:
+ *   Authorization: Bearer <token>
+ *
+ * NOTE: Bitbucket *App Passwords* (Personal settings → App passwords) use
+ * Basic auth and are NOT supported here.  Use an Access Token instead.
+ */
+class BitbucketClient(internal val pat: String) {
 
     private val mapper = jacksonObjectMapper()
-    private val base = "https://api.bitbucket.org/2.0"
+    private val base   = "https://api.bitbucket.org/2.0"
 
     companion object {
-        /**
-         * Shared OkHttpClient — one instance for the entire plugin lifetime.
-         * OkHttp internally manages a thread pool and connection pool; creating
-         * a new instance per request leaks both.
-         */
         val http: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
@@ -33,8 +39,6 @@ class BitbucketClient(private val pat: String) {
     // -------------------------------------------------------------------------
 
     fun getPullRequests(workspace: String, repoSlug: String, state: String = "OPEN"): List<PullRequest> {
-        // "ALL" must be expressed as three separate state params — embedding raw
-        // query fragments inside a single param value produces a malformed URL.
         val stateParams = when (state.uppercase()) {
             "ALL"  -> "state=OPEN&state=MERGED&state=DECLINED"
             else   -> "state=${state.uppercase()}"
@@ -47,8 +51,7 @@ class BitbucketClient(private val pat: String) {
 
     fun getPullRequestDetails(workspace: String, repoSlug: String, prId: Int): PullRequest {
         val url = "$base/repositories/$workspace/$repoSlug/pullrequests/$prId"
-        val response = get(url)
-        return mapper.readValue(response)
+        return mapper.readValue(get(url))
     }
 
     fun getPullRequestDiff(workspace: String, repoSlug: String, prId: Int): String {
@@ -58,8 +61,7 @@ class BitbucketClient(private val pat: String) {
 
     fun getDiffStat(workspace: String, repoSlug: String, prId: Int): List<DiffStatEntry> {
         val url = "$base/repositories/$workspace/$repoSlug/pullrequests/$prId/diffstat?pagelen=50"
-        val response = get(url)
-        val parsed: DiffStatResponse = mapper.readValue(response)
+        val parsed: DiffStatResponse = mapper.readValue(get(url))
         return parsed.values
     }
 
@@ -68,13 +70,16 @@ class BitbucketClient(private val pat: String) {
     // -------------------------------------------------------------------------
 
     fun approvePullRequest(workspace: String, repoSlug: String, prId: Int) {
-        val url = "$base/repositories/$workspace/$repoSlug/pullrequests/$prId/approve"
-        post(url, "")
+        post("$base/repositories/$workspace/$repoSlug/pullrequests/$prId/approve", "{}")
     }
 
     fun declinePullRequest(workspace: String, repoSlug: String, prId: Int) {
-        val url = "$base/repositories/$workspace/$repoSlug/pullrequests/$prId/decline"
-        post(url, "{}")
+        post("$base/repositories/$workspace/$repoSlug/pullrequests/$prId/decline", "{}")
+    }
+
+    fun mergePullRequest(workspace: String, repoSlug: String, prId: Int) {
+        val body = """{"type":"pullrequest","merge_strategy":"merge_commit","close_source_branch":false}"""
+        post("$base/repositories/$workspace/$repoSlug/pullrequests/$prId/merge", body)
     }
 
     // -------------------------------------------------------------------------
@@ -104,14 +109,21 @@ class BitbucketClient(private val pat: String) {
 
     private fun execute(request: Request): String {
         http.newCall(request).execute().use { response ->
-            // Always read the body inside use{} — reading it outside would close the connection prematurely
             val bodyText = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                val snippet = bodyText.take(300)
-                throw IOException("Bitbucket API error ${response.code}: $snippet")
+                val hint = when (response.code) {
+                    401 -> " — Invalid or expired Access Token. " +
+                           "Regenerate it under Bitbucket → Repo settings → Access tokens and update Settings."
+                    403 -> " — Token does not have sufficient permissions (needs at least read scope on pull-requests)."
+                    404 -> " — Repository not found. Check that Workspace and Repo Slug exactly match the Bitbucket URL."
+                    else -> ""
+                }
+                throw IOException(
+                    "Bitbucket API ${response.code}$hint\n" +
+                    "[${request.method} ${request.url}]: ${bodyText.take(400)}"
+                )
             }
             return bodyText
         }
     }
 }
-

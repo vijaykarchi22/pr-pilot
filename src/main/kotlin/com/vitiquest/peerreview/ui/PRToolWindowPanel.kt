@@ -21,10 +21,13 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.vitiquest.peerreview.ai.OpenAIClient
+import com.vitiquest.peerreview.analysis.CodeAnalyzer
 import com.vitiquest.peerreview.bitbucket.PullRequest
 import com.vitiquest.peerreview.bitbucket.PullRequestService
+import com.vitiquest.peerreview.settings.GitProvider
 import com.vitiquest.peerreview.settings.PluginSettings
 import com.vitiquest.peerreview.utils.GitUtils
+import com.vitiquest.peerreview.utils.RepoInfo
 import java.awt.*
 import java.io.File
 import java.time.format.DateTimeFormatter
@@ -50,13 +53,13 @@ data class FileDiffEntry(
 class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), com.intellij.openapi.Disposable {
 
     private val service  = PullRequestService()
-    private val aiClient = OpenAIClient()
+    private val aiClient = OpenAIClient(project)
 
     @Volatile private var disposed = false
 
     // ── shared state ─────────────────────────────────────────────────────────
     private var allPrs: List<PullRequest>     = emptyList()
-    private var bitbucketRepo: Pair<String, String>? = null
+    private var repoInfo: RepoInfo?           = null
     private var currentPr: PullRequest?       = null
     private var currentFileEntries: List<FileDiffEntry> = emptyList()
 
@@ -118,61 +121,82 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
     // ── View 1: PR list ───────────────────────────────────────────────────────
 
     private fun buildPrListView(): JPanel {
-        // toolbar
-        val topPanel = JPanel(GridBagLayout()).apply {
-            border = JBUI.Borders.empty(6, 8, 4, 8)
-            background = JBColor.PanelBackground
+        val refreshBtn = JButton(AllIcons.Actions.Refresh).apply {
+            toolTipText         = "Refresh pull requests"
+            isBorderPainted     = false
+            isContentAreaFilled = false
+            preferredSize       = Dimension(28, 28)
+        }
+        val filterBtn = JButton(AllIcons.General.Filter).apply {
+            toolTipText         = "Apply filter"
+            isBorderPainted     = false
+            isContentAreaFilled = false
+            preferredSize       = Dimension(28, 28)
+        }
+
+        // ── Action icon buttons ───────────────────────────────────────────────
+        val viewDiffBtn = makeIconButton(AllIcons.Actions.Diff,                 "View changed files")
+        val aiBtn       = makeIconButton(AllIcons.Actions.GeneratedFolder,      "AI Summary")
+        val approveBtn  = makeIconButton(AllIcons.RunConfigurations.TestPassed, "Approve PR")
+        val mergeBtn    = makeIconButton(AllIcons.Vcs.Merge,                    "Merge PR")
+        val declineBtn  = makeIconButton(AllIcons.RunConfigurations.TestFailed, "Decline / Close PR")
+
+        val actionBtnPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 3)).apply {
+            isOpaque = false
+            add(viewDiffBtn)
+            add(aiBtn)
+            add(JSeparator(JSeparator.VERTICAL).apply { preferredSize = Dimension(1, 20) })
+            add(approveBtn)
+            add(mergeBtn)
+            add(declineBtn)
+        }
+
+        // ── Filter bar ────────────────────────────────────────────────────────
+        val filterBar = JPanel(GridBagLayout()).apply {
+            isOpaque = false
+            border   = JBUI.Borders.empty(4, 8, 4, 4)
         }
         val gbc = GridBagConstraints().apply {
             insets = JBUI.insets(0, 2, 0, 2)
             anchor = GridBagConstraints.WEST
             fill   = GridBagConstraints.NONE
         }
-        val refreshBtn = JButton(AllIcons.Actions.Refresh).apply {
-            toolTipText      = "Refresh pull requests"
-            isBorderPainted  = false
-            isContentAreaFilled = false
-            preferredSize    = Dimension(28, 28)
-        }
-        gbc.gridx = 0; topPanel.add(refreshBtn, gbc)
-        gbc.gridx = 1; topPanel.add(JBLabel("Status:"), gbc)
-        gbc.gridx = 2; topPanel.add(stateFilter, gbc)
-        gbc.gridx = 3; topPanel.add(JBLabel("ID:"), gbc)
-        gbc.gridx = 4; topPanel.add(idFilterField, gbc)
-        gbc.gridx = 5; topPanel.add(JBLabel("Title:"), gbc)
+        gbc.gridx = 0; filterBar.add(refreshBtn, gbc)
+        gbc.gridx = 1; filterBar.add(JBLabel("Status:"), gbc)
+        gbc.gridx = 2; filterBar.add(stateFilter, gbc)
+        gbc.gridx = 3; filterBar.add(JBLabel("ID:"), gbc)
+        gbc.gridx = 4; filterBar.add(idFilterField, gbc)
+        gbc.gridx = 5; filterBar.add(JBLabel("Title:"), gbc)
         gbc.gridx = 6; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0
-        topPanel.add(titleFilterField, gbc)
+        filterBar.add(titleFilterField, gbc)
         gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
-        val filterBtn = JButton("Filter")
-        gbc.gridx = 7; topPanel.add(filterBtn, gbc)
+        gbc.gridx = 7; filterBar.add(filterBtn, gbc)
 
-        // list
+        // ── Combined top bar: filters left, action icons right ────────────────
+        val topBar = JPanel(BorderLayout()).apply {
+            background = JBColor.PanelBackground
+            border     = MatteBorder(0, 0, 1, 0, JBColor.border())
+            add(filterBar,     BorderLayout.CENTER)
+            add(actionBtnPanel, BorderLayout.EAST)
+        }
+
+        // ── PR list ───────────────────────────────────────────────────────────
         prList.cellRenderer = PRCardRenderer(prFileCount)
         prList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         prList.fixedCellHeight = -1
         prList.background = JBColor.PanelBackground
         val scrollPane = JBScrollPane(prList).apply {
-            border = MatteBorder(1, 0, 1, 0, JBColor.border())
+            border = MatteBorder(0, 0, 0, 0, JBColor.border())
         }
 
-        // buttons
-        val btnPanel = JPanel(GridLayout(1, 4, 4, 0)).apply {
-            border = JBUI.Borders.empty(6, 8, 4, 8)
-            background = JBColor.PanelBackground
-        }
-        val viewDiffBtn = makeActionButton("View Files", AllIcons.Actions.Diff)
-        val aiBtn       = makeActionButton("AI Summary", AllIcons.Actions.GeneratedFolder)
-        val approveBtn  = makeActionButton("✔  Approve", AllIcons.RunConfigurations.TestPassed)
-        val declineBtn  = makeActionButton("✘  Decline", AllIcons.RunConfigurations.TestFailed)
-        listOf(viewDiffBtn, aiBtn, approveBtn, declineBtn).forEach { btnPanel.add(it) }
-
-        // wire
+        // ── Wire listeners ────────────────────────────────────────────────────
         refreshBtn.addActionListener  { loadPullRequests() }
         filterBtn.addActionListener   { applyFilter() }
         stateFilter.addActionListener { loadPullRequests() }
         viewDiffBtn.addActionListener { onViewFiles() }
         aiBtn.addActionListener       { onAiSummary() }
         approveBtn.addActionListener  { onApprove() }
+        mergeBtn.addActionListener    { onMerge() }
         declineBtn.addActionListener  { onDecline() }
         prList.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mouseClicked(e: java.awt.event.MouseEvent) {
@@ -182,9 +206,8 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
 
         return JPanel(BorderLayout()).apply {
             background = JBColor.PanelBackground
-            add(topPanel,  BorderLayout.NORTH)
+            add(topBar,    BorderLayout.NORTH)
             add(scrollPane, BorderLayout.CENTER)
-            add(btnPanel,  BorderLayout.SOUTH)
         }
     }
 
@@ -374,14 +397,18 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
 
     private fun detectRepo() {
         runInBackground {
-            // Both warmUpSecretsCache() and detectBitbucketRepo() are slow I/O operations
-            // — keep them both on the background thread. Only the UI update goes on EDT.
             PluginSettings.instance.warmUpSecretsCache()
-            val repo = GitUtils.detectBitbucketRepo(project)
+            val info = GitUtils.detectRepo(project)
             invokeLater {
-                if (repo == null) { setStatus("⚠ No Bitbucket remote found for this project."); return@invokeLater }
-                bitbucketRepo = repo.workspace to repo.repoSlug
-                setStatus("📦 ${repo.workspace}/${repo.repoSlug}")
+                if (info == null) {
+                    setStatus("⚠ No GitHub or Bitbucket remote found for this project.")
+                    return@invokeLater
+                }
+                repoInfo = info
+                // Auto-sync the git provider setting with what was detected
+                PluginSettings.instance.gitProvider = info.provider
+                val providerLabel = if (info.provider == GitProvider.GITHUB) "GitHub" else "Bitbucket"
+                setStatus("📦 $providerLabel · ${info.owner}/${info.repoSlug}")
                 loadPullRequests()
             }
         }
@@ -392,17 +419,26 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
     // =========================================================================
 
     private fun loadPullRequests() {
-        val (workspace, slug) = bitbucketRepo ?: run { setStatus("⚠ Repository not detected."); return }
+        val info = repoInfo ?: run { setStatus("⚠ Repository not detected."); return }
         val selectedState = stateFilter.selectedItem as String
         setStatus("Loading pull requests…")
         runInBackground {
             try {
-                // Pass selectedState directly — BitbucketClient handles "ALL" correctly
-                val prs = service.getPullRequests(workspace, slug, selectedState)
+                val prs = service.getPullRequests(info.owner, info.repoSlug, selectedState)
                 allPrs = prs
                 invokeLater { applyFilter(); setStatus("${prs.size} PR(s) loaded.") }
             } catch (e: Exception) {
-                invokeLater { setStatus("⚠ ${e.message}") }
+                val msg = e.message ?: "Unknown error"
+                invokeLater {
+                    setStatus("⚠ Failed to load PRs — see error dialog.")
+                    val isAuthError = msg.contains("401") || msg.contains("No Access Token") ||
+                                      msg.contains("No PAT") || msg.contains("Invalid or expired")
+                    val detail = if (isAuthError)
+                        "$msg\n\nTip: Go to Settings → PR Review Assistant → Git Providers and " +
+                        "verify the Access Token for '${info.owner}/${info.repoSlug}'."
+                    else msg
+                    Messages.showErrorDialog(project, detail, "Load Pull Requests Failed")
+                }
             }
         }
     }
@@ -422,12 +458,12 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
     // =========================================================================
 
     private fun onViewFiles() {
-        val pr = selectedPr() ?: return
-        val (workspace, slug) = bitbucketRepo ?: return
+        val pr   = selectedPr() ?: return
+        val info = repoInfo ?: return
         setStatus("Fetching diff for PR #${pr.id}…")
         runInBackground {
             try {
-                val rawDiff = service.getPullRequestDiff(workspace, slug, pr.id)
+                val rawDiff = service.getPullRequestDiff(info.owner, info.repoSlug, pr.id)
                 val entries = parseDiffToEntries(rawDiff)
                 invokeLater {
                     if (entries.isEmpty()) {
@@ -438,7 +474,11 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
                     }
                 }
             } catch (e: Exception) {
-                invokeLater { setStatus("Diff error: ${e.message}") }
+                val msg = e.message ?: "Unknown error"
+                invokeLater {
+                    setStatus("⚠ Diff error — see error dialog.")
+                    Messages.showErrorDialog(project, msg, "Fetch Diff Failed")
+                }
             }
         }
     }
@@ -591,85 +631,166 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
     // =========================================================================
 
     private fun onAiSummary() {
-        val pr = selectedPr() ?: return
-        val (workspace, slug) = bitbucketRepo ?: return
+        val pr   = selectedPr() ?: return
+        val info = repoInfo ?: return
         setStatus("Building AI summary for PR #${pr.id}…")
         runInBackground {
             try {
-                val diffStat     = service.getDiffStat(workspace, slug, pr.id)
+                // 1. Fetch diff stat (list of changed files) and full unified diff
+                val diffStat     = service.getDiffStat(info.owner, info.repoSlug, pr.id)
+                val rawDiff      = service.getPullRequestDiff(info.owner, info.repoSlug, pr.id)
                 val changedFiles = diffStat.take(20).mapNotNull { it.newFile?.path ?: it.oldFile?.path }
                 val basePath     = project.basePath ?: ""
 
-                // VFS access (findFileByIoFile + contentsToByteArray) must be
-                // wrapped in a ReadAction even on a background thread.
-                val fileContents = changedFiles.joinToString("\n\n") { path ->
+                // 2. Split raw diff into per-file patches keyed by file path
+                val patchMap = buildPatchMap(rawDiff)
+
+                // 3. For each changed file: read local content + run CodeAnalyzer
+                val analyses = changedFiles.map { path ->
                     val content = ReadAction.compute<String, Exception> {
                         val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
-                        vf?.let {
-                            runCatching { String(it.contentsToByteArray()).take(3000) }
-                                .getOrElse { "[unreadable]" }
-                        } ?: "[not found locally]"
+                        vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
                     }
-                    "### $path\n$content"
+                    val patch = patchMap[path] ?: patchMap.entries
+                        .firstOrNull { it.key.endsWith(path) || path.endsWith(it.key) }?.value ?: ""
+                    CodeAnalyzer.analyze(path, content, patch)
                 }
 
-                val summary = aiClient.generateSummary(buildPrompt(pr, changedFiles, fileContents))
+                // 4. Resolve imported local files from all changed files
+                //    — walk each analysis's imports, find matching project files,
+                //      analyze them too so the AI has full context (marked isReferenced=true)
+                val alreadyIncluded = changedFiles.toMutableSet()
+                val referencedAnalyses = mutableListOf<CodeAnalyzer.FileAnalysis>()
+
+                analyses.forEach { analysis ->
+                    val localPaths = CodeAnalyzer.resolveLocalImports(
+                        imports          = analysis.imports,
+                        language         = analysis.language,
+                        projectRoot      = basePath,
+                        alreadyIncluded  = alreadyIncluded
+                    )
+                    localPaths.forEach { refPath ->
+                        alreadyIncluded.add(refPath)
+                        val refContent = ReadAction.compute<String, Exception> {
+                            val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, refPath))
+                            vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
+                        }
+                        if (refContent.isNotBlank()) {
+                            referencedAnalyses.add(
+                                CodeAnalyzer.analyze(refPath, refContent, "", isReferenced = true)
+                            )
+                        }
+                    }
+                }
+
+                setStatus("Generating AI review for PR #${pr.id} (${analyses.size} changed, ${referencedAnalyses.size} referenced)…")
+                val prContext = OpenAIClient.PrContext(
+                    id                = pr.id,
+                    title             = pr.title,
+                    author            = pr.author.displayName,
+                    sourceBranch      = pr.source.branch.name,
+                    destinationBranch = pr.destination.branch.name,
+                    fileCount         = analyses.size
+                )
+                val summary = aiClient.generateSummary(buildPrompt(pr, analyses, referencedAnalyses), prContext)
                 invokeLater { showSummaryDialog(pr, summary); setStatus("AI summary generated.") }
             } catch (e: Exception) {
-                invokeLater { setStatus("AI error: ${e.message}") }
+                invokeLater {
+                    setStatus("AI error: ${e.message}")
+                    Messages.showErrorDialog(project, e.message ?: "Unknown error", "AI Summary Failed")
+                }
             }
         }
     }
 
-    private fun buildPrompt(pr: PullRequest, files: List<String>, contents: String) = """
-You are a senior code reviewer. Produce a PR review summary in README markdown format.
+    /**
+     * Splits a full unified diff string into a map of  filePath → patchText.
+     * Keys use the new-file path (b/ prefix stripped).
+     */
+    private fun buildPatchMap(rawDiff: String): Map<String, String> {
+        val map      = mutableMapOf<String, String>()
+        val sections = rawDiff.split(Regex("(?=diff --git )")).filter { it.isNotBlank() }
+        for (section in sections) {
+            val newPathLine = section.lines().firstOrNull { it.startsWith("+++ ") } ?: continue
+            val path = newPathLine.removePrefix("+++ ").removePrefix("b/").trim()
+            if (path.isNotBlank() && path != "/dev/null") map[path] = section
+        }
+        return map
+    }
 
-Structure your response EXACTLY like this:
+    /**
+     * Builds the USER message sent to the AI — contains only the structured code
+     * data (file analyses + truncated source).
+     *
+     * Role, tone, output format    → system_prompt.md   (system message 1)
+     * Review rules + standards     → review_rules.md + coding_standards.md (system message 2)
+     * PR id / title / author       → PrContext  (system message 3)
+     * Diff data                    → THIS method (user message)
+     *
+     * @param analyses           directly changed files (from the PR diff)
+     * @param referencedAnalyses files imported by changed files — not modified but provide context
+     */
+    private fun buildPrompt(
+        pr: PullRequest,
+        analyses: List<CodeAnalyzer.FileAnalysis>,
+        referencedAnalyses: List<CodeAnalyzer.FileAnalysis> = emptyList()
+    ): String {
+        return buildString {
+            // ── Directly changed files ────────────────────────────────────────
+            appendLine("## Directly Changed Files (${analyses.size})")
+            appendLine()
+            appendLine("These files were modified in PR #${pr.id}. Review them thoroughly.")
+            appendLine()
 
-# PR #${pr.id}: ${pr.title}
+            analyses.forEach { analysis ->
+                appendLine(CodeAnalyzer.formatForPrompt(analysis))
 
-**Author:** ${pr.author.displayName}
-**Branch:** `${pr.source.branch.name}` → `${pr.destination.branch.name}`
-**Files changed:** ${files.size}
+                // Truncated file content (3 000 chars per file to stay within token budget)
+                val fileContent = ReadAction.compute<String?, Exception> {
+                    val f = File(project.basePath ?: "", analysis.path)
+                    LocalFileSystem.getInstance().findFileByIoFile(f)?.let {
+                        runCatching { String(it.contentsToByteArray()).take(3000) }.getOrNull()
+                    }
+                }
+                if (!fileContent.isNullOrBlank()) {
+                    appendLine("```${analysis.language}")
+                    appendLine(fileContent)
+                    appendLine("```")
+                }
+                appendLine("---")
+            }
 
----
+            // ── Referenced files (resolved from imports) ──────────────────────
+            if (referencedAnalyses.isNotEmpty()) {
+                appendLine()
+                appendLine("## Referenced Files (${referencedAnalyses.size})")
+                appendLine()
+                appendLine("These files are **imported by** the changed files above.")
+                appendLine("They were NOT directly modified but are part of the blast radius.")
+                appendLine("Use them to understand the full context — interfaces, base classes,")
+                appendLine("shared utilities, or data models that the changed code depends on.")
+                appendLine()
 
-## Overview
+                referencedAnalyses.forEach { analysis ->
+                    appendLine(CodeAnalyzer.formatForPrompt(analysis))
 
-<2-3 sentence summary of the overall purpose of this PR>
-
----
-
-## File Analysis
-
-For EACH file below, write a section in this exact format:
-
-### `<filename>`
-**Impact:** <LOW | MEDIUM | HIGH>
-**Change type:** <ADDED | MODIFIED | DELETED | REFACTOR | BUGFIX | CONFIG>
-
-**What changed:**
-<concise description>
-
-**Risks:**
-<bullet list of risks, or "None identified">
-
-**Suggestions:**
-<bullet list of improvement suggestions, or "None">
-
----
-
-## Summary
-
-| File | Impact | Change Type |
-|------|--------|-------------|
-<one row per file>
-
----
-
-Files to analyse:
-$contents
-""".trimIndent()
+                    // Smaller snippet for referenced files — 1 500 chars is enough for structure
+                    val refContent = ReadAction.compute<String?, Exception> {
+                        val f = File(project.basePath ?: "", analysis.path)
+                        LocalFileSystem.getInstance().findFileByIoFile(f)?.let {
+                            runCatching { String(it.contentsToByteArray()).take(1500) }.getOrNull()
+                        }
+                    }
+                    if (!refContent.isNullOrBlank()) {
+                        appendLine("```${analysis.language}")
+                        appendLine(refContent)
+                        appendLine("```")
+                    }
+                    appendLine("---")
+                }
+            }
+        }.trimIndent()
+    }
 
     private fun showSummaryDialog(pr: PullRequest, summary: String) {
         val html = markdownToHtml(summary)
@@ -909,30 +1030,94 @@ $contents
     // =========================================================================
 
     private fun onApprove() {
-        val pr = selectedPr() ?: return
-        val (workspace, slug) = bitbucketRepo ?: return
-        if (Messages.showYesNoDialog(project, "Approve PR #${pr.id}: \"${pr.title}\"?",
+        val pr   = selectedPr() ?: return
+        val info = repoInfo ?: return
+        val actionLabel = if (PluginSettings.instance.gitProvider == GitProvider.GITHUB) "Approve (review)" else "Approve"
+        if (Messages.showYesNoDialog(project, "$actionLabel PR #${pr.id}: \"${pr.title}\"?",
                 "Confirm Approve", Messages.getQuestionIcon()) != Messages.YES) return
         setStatus("Approving PR #${pr.id}…")
         runInBackground {
             try {
-                service.approvePullRequest(workspace, slug, pr.id)
-                invokeLater { notify("PR #${pr.id} approved.", NotificationType.INFORMATION); loadPullRequests() }
-            } catch (e: Exception) { invokeLater { setStatus("Approve error: ${e.message}") } }
+                service.approvePullRequest(info.owner, info.repoSlug, pr.id)
+                invokeLater {
+                    notify("PR #${pr.id} approved.", NotificationType.INFORMATION)
+                    loadPullRequests()
+                }
+            } catch (e: Exception) {
+                invokeLater {
+                    setStatus("Approve failed.")
+                    Messages.showErrorDialog(
+                        project,
+                        e.message ?: "Unknown error",
+                        "Approve PR #${pr.id} Failed"
+                    )
+                }
+            }
         }
     }
 
     private fun onDecline() {
-        val pr = selectedPr() ?: return
-        val (workspace, slug) = bitbucketRepo ?: return
-        if (Messages.showYesNoDialog(project, "Decline PR #${pr.id}: \"${pr.title}\"?",
-                "Confirm Decline", Messages.getWarningIcon()) != Messages.YES) return
-        setStatus("Declining PR #${pr.id}…")
+        val pr   = selectedPr() ?: return
+        val info = repoInfo ?: return
+        val actionLabel = if (PluginSettings.instance.gitProvider == GitProvider.GITHUB) "Close" else "Decline"
+        if (Messages.showYesNoDialog(project, "$actionLabel PR #${pr.id}: \"${pr.title}\"?",
+                "Confirm $actionLabel", Messages.getWarningIcon()) != Messages.YES) return
+        setStatus("${actionLabel}ing PR #${pr.id}…")
         runInBackground {
             try {
-                service.declinePullRequest(workspace, slug, pr.id)
-                invokeLater { notify("PR #${pr.id} declined.", NotificationType.WARNING); loadPullRequests() }
-            } catch (e: Exception) { invokeLater { setStatus("Decline error: ${e.message}") } }
+                service.declinePullRequest(info.owner, info.repoSlug, pr.id)
+                invokeLater {
+                    notify("PR #${pr.id} ${actionLabel.lowercase()}d.", NotificationType.WARNING)
+                    loadPullRequests()
+                }
+            } catch (e: Exception) {
+                invokeLater {
+                    setStatus("$actionLabel failed.")
+                    Messages.showErrorDialog(
+                        project,
+                        e.message ?: "Unknown error",
+                        "$actionLabel PR #${pr.id} Failed"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun onMerge() {
+        val pr   = selectedPr() ?: return
+        val info = repoInfo ?: return
+        if (pr.state.uppercase() != "OPEN") {
+            Messages.showWarningDialog(
+                project,
+                "PR #${pr.id} is not open and cannot be merged.",
+                "Cannot Merge"
+            )
+            return
+        }
+        if (Messages.showYesNoDialog(
+                project,
+                "Merge PR #${pr.id}: \"${pr.title}\"?\n\nThis will create a merge commit on \"${pr.destination.branch.name}\".",
+                "Confirm Merge",
+                Messages.getQuestionIcon()
+            ) != Messages.YES) return
+        setStatus("Merging PR #${pr.id}…")
+        runInBackground {
+            try {
+                service.mergePullRequest(info.owner, info.repoSlug, pr.id)
+                invokeLater {
+                    notify("PR #${pr.id} merged successfully.", NotificationType.INFORMATION)
+                    loadPullRequests()
+                }
+            } catch (e: Exception) {
+                invokeLater {
+                    setStatus("Merge failed.")
+                    Messages.showErrorDialog(
+                        project,
+                        e.message ?: "Unknown error",
+                        "Merge PR #${pr.id} Failed"
+                    )
+                }
+            }
         }
     }
 
@@ -953,8 +1138,23 @@ $contents
             .createNotification(msg, type).notify(project)
     }
 
-    private fun makeActionButton(label: String, icon: Icon) = JButton(label, icon).apply {
-        horizontalAlignment = SwingConstants.LEFT; iconTextGap = 6
+    private fun makeIconButton(icon: Icon, tooltip: String) = JButton(icon).apply {
+        toolTipText         = tooltip
+        isBorderPainted     = false
+        isContentAreaFilled = false
+        isFocusPainted      = false
+        preferredSize       = Dimension(28, 28)
+        cursor              = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+        // Subtle highlight on hover
+        addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseEntered(e: java.awt.event.MouseEvent) {
+                isContentAreaFilled = true
+                background = JBColor(Color(0, 0, 0, 20), Color(255, 255, 255, 25))
+            }
+            override fun mouseExited(e: java.awt.event.MouseEvent) {
+                isContentAreaFilled = false
+            }
+        })
     }
 
     private fun runInBackground(block: () -> Unit) {

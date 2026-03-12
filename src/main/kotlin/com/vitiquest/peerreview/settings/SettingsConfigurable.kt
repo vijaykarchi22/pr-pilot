@@ -20,8 +20,14 @@ class SettingsConfigurable : Configurable {
 
     private var root: JPanel? = null
 
+    // ── Git provider selector ─────────────────────────────────────────────────
+    private val gitProviderCombo = ComboBox(arrayOf("Bitbucket", "GitHub"))
+
     // ── Bitbucket ─────────────────────────────────────────────────────────────
     private val bitbucketPatField = JBPasswordField()
+
+    // ── GitHub ────────────────────────────────────────────────────────────────
+    private val githubPatField = JBPasswordField()
 
     // ── AI provider selector ──────────────────────────────────────────────────
     private val providerCombo = ComboBox(arrayOf("OpenAI", "OpenAI Compatible", "Ollama"))
@@ -47,30 +53,41 @@ class SettingsConfigurable : Configurable {
     }
 
     // ── Card names ────────────────────────────────────────────────────────────
-    private val CARD_OPENAI   = "OPENAI"
-    private val CARD_COMPAT   = "COMPAT"
-    private val CARD_OLLAMA   = "OLLAMA"
-    private val CARD_LOADING  = "LOADING"
-    private val CARD_FORM     = "FORM"
+    private val CARD_BITBUCKET = "BITBUCKET"
+    private val CARD_GITHUB    = "GITHUB"
+    private val CARD_OPENAI    = "OPENAI"
+    private val CARD_COMPAT    = "COMPAT"
+    private val CARD_OLLAMA    = "OLLAMA"
+    private val CARD_LOADING   = "LOADING"
+    private val CARD_FORM      = "FORM"
 
-    private val providerCards  = CardLayout()
-    private val providerPanel  = JPanel(providerCards)
+    // Git-provider PAT cards
+    private val gitPatCards  = CardLayout()
+    private val gitPatPanel  = JPanel(gitPatCards)
 
-    // Root switcher: shows "Loading…" until secrets are loaded from background thread
-    private val rootCards  = CardLayout()
-    private val rootPanel  = JPanel(rootCards)
+    // AI-provider config cards
+    private val providerCards = CardLayout()
+    private val providerPanel = JPanel(providerCards)
+
+    // Root switcher
+    private val rootCards = CardLayout()
+    private val rootPanel = JPanel(rootCards)
 
     override fun getDisplayName() = "PR Review Assistant"
 
     override fun createComponent(): JComponent {
-        // ── Loading placeholder card ──────────────────────────────────────────
         val loadingPanel = JPanel(BorderLayout()).apply {
             add(JBLabel("Loading settings…").apply {
                 horizontalAlignment = SwingConstants.CENTER
             }, BorderLayout.CENTER)
         }
 
-        // ── Build the real form ───────────────────────────────────────────────
+        // Git PAT cards
+        gitPatPanel.add(buildBitbucketPatCard(), CARD_BITBUCKET)
+        gitPatPanel.add(buildGitHubPatCard(),    CARD_GITHUB)
+        gitProviderCombo.addActionListener { switchGitPatCard() }
+
+        // AI provider cards
         providerPanel.add(buildOpenAiCard(),  CARD_OPENAI)
         providerPanel.add(buildCompatCard(),  CARD_COMPAT)
         providerPanel.add(buildOllamaCard(),  CARD_OLLAMA)
@@ -84,11 +101,10 @@ class SettingsConfigurable : Configurable {
 
         root = rootPanel
 
-        // ── Warm up the PasswordSafe cache on a pooled thread, then populate ──
         ApplicationManager.getApplication().executeOnPooledThread {
-            PluginSettings.instance.warmUpSecretsCache()          // slow I/O — off EDT
+            PluginSettings.instance.warmUpSecretsCache()
             ApplicationManager.getApplication().invokeLater {
-                populateFields()                                   // fast — just sets field text
+                populateFields()
                 rootCards.show(rootPanel, CARD_FORM)
             }
         }
@@ -105,11 +121,16 @@ class SettingsConfigurable : Configurable {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(8, 12, 8, 12)
         }
-        panel.add(TitledSeparator("Bitbucket Cloud"))
+
+        // ── Git Provider ──────────────────────────────────────────────────────
+        panel.add(TitledSeparator("Git Provider"))
         panel.add(Box.createVerticalStrut(4))
-        panel.add(formRow("Personal Access Token:", bitbucketPatField))
+        panel.add(formRow("Provider:", gitProviderCombo))
+        panel.add(Box.createVerticalStrut(6))
+        panel.add(gitPatPanel)
         panel.add(Box.createVerticalStrut(12))
 
+        // ── AI Provider ───────────────────────────────────────────────────────
         panel.add(TitledSeparator("AI Provider"))
         panel.add(Box.createVerticalStrut(4))
         panel.add(formRow("Provider:", providerCombo))
@@ -117,11 +138,12 @@ class SettingsConfigurable : Configurable {
         panel.add(providerPanel)
         panel.add(Box.createVerticalStrut(12))
 
+        // ── System Prompt (legacy) ────────────────────────────────────────────
         panel.add(TitledSeparator("Review Rules / System Prompt"))
         panel.add(Box.createVerticalStrut(4))
         panel.add(JBLabel(
             "<html><small>Injected as a system message before every AI summary request.<br>" +
-            "Example: <i>\"Focus on security issues and follow our naming conventions.\"</i></small></html>"
+            "Tip: edit <b>.idea/pr-pilot/skills/system_prompt.md</b> for per-project control.</small></html>"
         ).apply { border = JBUI.Borders.emptyBottom(6) })
         panel.add(JBScrollPane(systemPromptArea).apply {
             preferredSize = Dimension(Int.MAX_VALUE, 160)
@@ -133,6 +155,16 @@ class SettingsConfigurable : Configurable {
 
         return JPanel(BorderLayout()).apply { add(panel, BorderLayout.NORTH) }
     }
+
+    private fun buildBitbucketPatCard() = formCard(
+        formRow("Access Token:", bitbucketPatField),
+        noteRow("Generate at: Bitbucket → Repository/Workspace settings → Access tokens")
+    )
+
+    private fun buildGitHubPatCard() = formCard(
+        formRow("Personal Access Token:", githubPatField),
+        noteRow("Generate at: GitHub → Settings → Developer settings → Personal access tokens")
+    )
 
     private fun buildOpenAiCard() = formCard(
         formRow("API Key:", openAiKeyField),
@@ -166,7 +198,7 @@ class SettingsConfigurable : Configurable {
 
     private fun formRow(label: String, field: JComponent): JPanel {
         val lbl = JBLabel(label).apply {
-            preferredSize = Dimension(160, preferredSize.height)
+            preferredSize = Dimension(180, preferredSize.height)
             minimumSize   = preferredSize
         }
         field.maximumSize = Dimension(Int.MAX_VALUE, field.preferredSize.height + 4)
@@ -179,8 +211,13 @@ class SettingsConfigurable : Configurable {
 
     private fun noteRow(text: String) =
         JBLabel("<html><small><i>$text</i></small></html>").apply {
-            border = JBUI.Borders.empty(0, 168, 0, 0)
+            border = JBUI.Borders.empty(0, 188, 0, 0)
         }
+
+    private fun switchGitPatCard() {
+        val card = if (gitProviderCombo.selectedIndex == 1) CARD_GITHUB else CARD_BITBUCKET
+        gitPatCards.show(gitPatPanel, card)
+    }
 
     private fun switchProviderCard() {
         val card = when (providerCombo.selectedIndex) {
@@ -192,22 +229,23 @@ class SettingsConfigurable : Configurable {
     }
 
     // =========================================================================
-    // Configurable lifecycle  —  NO PasswordSafe calls on EDT
+    // Configurable lifecycle
     // =========================================================================
 
-    /**
-     * Populate all UI fields from the already-cached values.
-     * Must be called on EDT after [PluginSettings.warmUpSecretsCache] has finished.
-     */
     private fun populateFields() {
         val s = PluginSettings.instance
 
-        // secrets — safe because cache is already warm
+        // Git provider
+        gitProviderCombo.selectedIndex = s.gitProvider.ordinal
+        switchGitPatCard()
+
+        // Secrets
         bitbucketPatField.text = s.getBitbucketPat()
+        githubPatField.text    = s.getGitHubPat()
         openAiKeyField.text    = s.getOpenAiKey()
         compatKeyField.text    = s.getOpenAiCompatKey()
 
-        // non-secrets
+        // Non-secrets
         providerCombo.selectedIndex = s.aiProvider.ordinal
         switchProviderCard()
         openAiModelField.text   = s.openAiModel
@@ -220,27 +258,29 @@ class SettingsConfigurable : Configurable {
 
     override fun isModified(): Boolean {
         val s = PluginSettings.instance
-        // Secrets compared against cache — no keychain I/O
-        return String(bitbucketPatField.password) != s.getBitbucketPat()
-            || providerCombo.selectedIndex         != s.aiProvider.ordinal
-            || String(openAiKeyField.password)     != s.getOpenAiKey()
-            || openAiModelField.text               != s.openAiModel
-            || String(compatKeyField.password)     != s.getOpenAiCompatKey()
-            || compatBaseUrlField.text             != s.openAiCompatBaseUrl
-            || compatModelField.text               != s.openAiCompatModel
-            || ollamaBaseUrlField.text             != s.ollamaBaseUrl
-            || ollamaModelField.text               != s.ollamaModel
-            || systemPromptArea.text               != s.systemPrompt
+        return gitProviderCombo.selectedIndex              != s.gitProvider.ordinal
+            || String(bitbucketPatField.password)          != s.getBitbucketPat()
+            || String(githubPatField.password)             != s.getGitHubPat()
+            || providerCombo.selectedIndex                 != s.aiProvider.ordinal
+            || String(openAiKeyField.password)             != s.getOpenAiKey()
+            || openAiModelField.text                       != s.openAiModel
+            || String(compatKeyField.password)             != s.getOpenAiCompatKey()
+            || compatBaseUrlField.text                     != s.openAiCompatBaseUrl
+            || compatModelField.text                       != s.openAiCompatModel
+            || ollamaBaseUrlField.text                     != s.ollamaBaseUrl
+            || ollamaModelField.text                       != s.ollamaModel
+            || systemPromptArea.text                       != s.systemPrompt
     }
 
     override fun apply() {
         val s = PluginSettings.instance
 
-        // Capture all values from UI fields on EDT (safe — just reading Swing components)
-        val pat        = String(bitbucketPatField.password)
-        val openAiKey  = String(openAiKeyField.password)
-        val compatKey  = String(compatKeyField.password)
-        val provider   = when (providerCombo.selectedIndex) {
+        val gitProvider  = if (gitProviderCombo.selectedIndex == 1) GitProvider.GITHUB else GitProvider.BITBUCKET
+        val bbPat        = String(bitbucketPatField.password)
+        val ghPat        = String(githubPatField.password)
+        val openAiKey    = String(openAiKeyField.password)
+        val compatKey    = String(compatKeyField.password)
+        val aiProvider   = when (providerCombo.selectedIndex) {
             1    -> AiProvider.OPENAI_COMPATIBLE
             2    -> AiProvider.OLLAMA
             else -> AiProvider.OPENAI
@@ -252,28 +292,25 @@ class SettingsConfigurable : Configurable {
         val ollamaModel    = ollamaModelField.text.trim().ifBlank { "llama3" }
         val systemPrompt   = systemPromptArea.text
 
-        // Apply non-secret settings immediately (just in-memory writes, safe on EDT)
-        s.aiProvider         = provider
-        s.openAiModel        = openAiModel
+        // Non-secret writes are safe on EDT
+        s.gitProvider         = gitProvider
+        s.aiProvider          = aiProvider
+        s.openAiModel         = openAiModel
         s.openAiCompatBaseUrl = compatBaseUrl
-        s.openAiCompatModel  = compatModel
-        s.ollamaBaseUrl      = ollamaBaseUrl
-        s.ollamaModel        = ollamaModel
-        s.systemPrompt       = systemPrompt
+        s.openAiCompatModel   = compatModel
+        s.ollamaBaseUrl       = ollamaBaseUrl
+        s.ollamaModel         = ollamaModel
+        s.systemPrompt        = systemPrompt
 
-        // Write secrets off-EDT — PasswordSafe I/O is a slow operation forbidden on EDT
+        // Secrets must be written on a background thread
         ApplicationManager.getApplication().executeOnPooledThread {
-            if (pat.isNotBlank())       s.setBitbucketPat(pat)
+            if (ghPat.isNotBlank())     s.setGitHubPat(ghPat)
             if (openAiKey.isNotBlank()) s.setOpenAiKey(openAiKey)
             if (compatKey.isNotBlank()) s.setOpenAiCompatKey(compatKey)
         }
     }
 
-    override fun reset() {
-        // Only called when user clicks "Reset" inside an already-open settings dialog.
-        // Cache is guaranteed warm at this point (createComponent already ran).
-        populateFields()
-    }
+    override fun reset() { populateFields() }
 
     override fun disposeUIResources() { root = null }
 }

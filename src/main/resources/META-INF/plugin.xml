@@ -13,8 +13,9 @@
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        <b>PR Review Assistant</b> — Review Bitbucket Cloud Pull Requests from within IntelliJ IDEA.<br/>
-        Features: Browse open PRs, view diffs, generate AI summaries, approve or decline PRs.
+        <b>PR Review Assistant</b> — Review GitHub and Bitbucket Cloud Pull Requests from within IntelliJ IDEA.<br/>
+        Features: Browse open PRs, view diffs, generate AI summaries, approve or decline PRs.<br/>
+        Supports per-project AI skill files under <code>.idea/pr-pilot/skills/</code>.
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.
@@ -37,12 +38,20 @@
         <applicationService
             serviceImplementation="com.vitiquest.peerreview.settings.PluginSettings"/>
 
-        <!-- Settings UI page -->
+
+        <!-- Skills service (project-scoped — reads .idea/pr-pilot/skills/*.md) -->
+        <projectService
+            serviceImplementation="com.vitiquest.peerreview.skills.PRPilotSkillsService"/>
+
+        <!-- Seeds default skill files when a project is first opened -->
+        <postStartupActivity
+            implementation="com.vitiquest.peerreview.skills.PRPilotSkillsStartupActivity"/>
+
+        <!-- Dedicated full-size settings window for the plugin -->
         <applicationConfigurable
-            parentId="tools"
-            id="com.vitiquest.peerreview.settings"
+            id="com.vitiquest.peerreview.settings.root"
             displayName="PR Review Assistant"
-            instance="com.vitiquest.peerreview.settings.SettingsConfigurable"/>
+            instance="com.vitiquest.peerreview.settings.PRPilotSettingsConfigurable"/>
 
         <!-- Notification group for balloon messages -->
         <notificationGroup id="PR Review Assistant"
