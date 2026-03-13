@@ -190,7 +190,9 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         }
 
         // ── Wire listeners ────────────────────────────────────────────────────
-        refreshBtn.addActionListener  { loadPullRequests() }
+        // If no repo has been detected yet, refresh should re-run detection
+        // (handles the startup race-condition and manual "retry" after an error).
+        refreshBtn.addActionListener  { if (repoInfo == null) detectRepo() else loadPullRequests() }
         filterBtn.addActionListener   { applyFilter() }
         stateFilter.addActionListener { loadPullRequests() }
         viewDiffBtn.addActionListener { onViewFiles() }
@@ -395,13 +397,44 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
     // Repository Detection
     // =========================================================================
 
-    private fun detectRepo() {
+    /**
+     * Detects the repository for the current project.
+     *
+     * Git4Idea initialises its GitRepositoryManager asynchronously, so on a
+     * cold startup the repositories list can be empty for a few seconds even
+     * when the project definitely contains a .git directory.  We therefore
+     * retry up to MAX_RETRIES times with an exponential back-off (1 s, 2 s, 4 s …)
+     * before giving up and showing an error.
+     *
+     * When repos have loaded but no GitHub/Bitbucket remote exists we show a
+     * different, more actionable message than the "loading …" state.
+     */
+    private fun detectRepo(retryCount: Int = 0) {
+        val MAX_RETRIES = 6
         runInBackground {
             PluginSettings.instance.warmUpSecretsCache()
+
+            // Check whether Git4Idea has finished scanning yet
+            val reposReady = GitUtils.hasRepositories(project)
+
+            if (!reposReady && retryCount < MAX_RETRIES) {
+                val delayMs = (1000L shl retryCount).coerceAtMost(10_000L) // 1 s, 2 s, 4 s … capped at 10 s
+                invokeLater {
+                    setStatus("⏳ Waiting for Git to initialise… (attempt ${retryCount + 1}/$MAX_RETRIES)")
+                }
+                Thread.sleep(delayMs)
+                invokeLater { detectRepo(retryCount + 1) }
+                return@runInBackground
+            }
+
             val info = GitUtils.detectRepo(project)
             invokeLater {
                 if (info == null) {
-                    setStatus("⚠ No GitHub or Bitbucket remote found for this project.")
+                    if (!reposReady) {
+                        setStatus("⚠ Git repository not found. Make sure this project is inside a Git repo. Click Refresh to retry.")
+                    } else {
+                        setStatus("⚠ No GitHub or Bitbucket remote found. Check your remote URLs. Click Refresh to retry.")
+                    }
                     return@invokeLater
                 }
                 repoInfo = info

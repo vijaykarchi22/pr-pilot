@@ -18,15 +18,24 @@ object GitUtils {
 
     /**
      * Detects the first git remote that points to either github.com or bitbucket.org
-     * and returns a [RepoInfo] with the resolved provider, owner and repo name.
-     * Returns null if no matching remote is found.
+     * across ALL repositories in the project and returns a [RepoInfo].
+     *
+     * Searches every git root (not just the first one) so multi-root projects work
+     * correctly.  GitHub takes priority over Bitbucket when both exist.
+     *
+     * Returns null if no matching remote is found OR if the repository manager has
+     * not finished scanning yet (caller should retry with a delay in that case —
+     * check [hasRepositories] first).
      */
     fun detectRepo(project: Project): RepoInfo? {
         val manager = GitRepositoryManager.getInstance(project)
-        val repo    = manager.repositories.firstOrNull() ?: return null
-        val allUrls = repo.remotes.flatMap { it.urls }
+        val repos   = manager.repositories
+        if (repos.isEmpty()) return null
 
-        // GitHub takes priority if both remotes exist
+        // Collect all remote URLs from every git root
+        val allUrls = repos.flatMap { repo -> repo.remotes.flatMap { it.urls } }
+
+        // GitHub takes priority if both remotes exist anywhere in the project
         allUrls.firstOrNull { it.contains("github.com", ignoreCase = true) }
             ?.let { url -> parseGitHubUrl(url)?.let { return it } }
 
@@ -35,6 +44,13 @@ object GitUtils {
 
         return null
     }
+
+    /**
+     * Returns true once [GitRepositoryManager] has finished its initial scan
+     * and has at least one repository registered for the project.
+     */
+    fun hasRepositories(project: Project): Boolean =
+        GitRepositoryManager.getInstance(project).repositories.isNotEmpty()
 
     /** Legacy helper kept for backward-compat. */
     fun detectBitbucketRepo(project: Project): BitbucketRepo? {
