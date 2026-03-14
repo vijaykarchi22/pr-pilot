@@ -3,7 +3,7 @@
 [![Twitter Follow](https://img.shields.io/badge/follow-%40JBPlatform-1DA1F2?logo=twitter)](https://twitter.com/JBPlatform)
 [![Developers Forum](https://img.shields.io/badge/JetBrains%20Platform-Join-blue)][jb:forum]
 
-## Plugin template structure
+## Plugin template structure (Test Changes)
 
 A generated project contains the following content structure:
 
