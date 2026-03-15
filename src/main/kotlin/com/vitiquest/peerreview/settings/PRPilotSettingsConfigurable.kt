@@ -60,6 +60,12 @@ class PRPilotSettingsConfigurable : Configurable {
     private val AI_CARD_COMPAT      = "COMPAT"
     private val AI_CARD_OLLAMA      = "OLLAMA"
 
+    // ── JIRA tab ─────────────────────────────────────────────────────────────
+    private val jiraBaseUrlField        = JBTextField("https://your-domain.atlassian.net")
+    private val jiraEmailField          = JBTextField()
+    private val jiraApiTokenField       = JBPasswordField()
+    private val jiraIssueKeyPatternField = JBTextField("[A-Z][A-Z0-9]+-\\d+")
+
     // ── Skills tab ────────────────────────────────────────────────────────────
     private val systemPromptEditor   = buildEditor()
     private val reviewRulesEditor    = buildEditor()
@@ -72,6 +78,7 @@ class PRPilotSettingsConfigurable : Configurable {
         if (!tabsBuilt) {
             tabs.addTab("⚙  Git Providers",    buildGitProvidersTab())
             tabs.addTab("🤖  AI Provider",     buildAiProviderTab())
+            tabs.addTab("🎫  JIRA",            buildJiraTab())
             tabs.addTab("📝  Skills & Prompts", buildSkillsTab())
             tabsBuilt = true
         }
@@ -327,6 +334,43 @@ class PRPilotSettingsConfigurable : Configurable {
     }
 
     // =========================================================================
+    // Tab 3 — JIRA
+    // =========================================================================
+
+    private fun buildJiraTab(): JComponent {
+        val panel = JPanel(BorderLayout(0, 12))
+        panel.border = JBUI.Borders.empty(16, 20)
+
+        val header = JPanel(BorderLayout())
+        header.add(TitledSeparator("Atlassian JIRA Cloud"), BorderLayout.NORTH)
+        val infoLabel = JBLabel(
+            "<html><small>" +
+            "Configure JIRA Cloud so PR actions can update the linked ticket.<br>" +
+            "Detection checks the PR title, description, and branch names for keys like <code>ABC-123</code>.<br>" +
+            "Use an Atlassian API token from <b>https://id.atlassian.com/manage-profile/security/api-tokens</b>." +
+            "</small></html>"
+        ).apply { border = JBUI.Borders.empty(6, 4, 12, 4) }
+        header.add(infoLabel, BorderLayout.CENTER)
+
+        val form = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(formRow("JIRA Base URL:", jiraBaseUrlField))
+            add(Box.createVerticalStrut(8))
+            add(formRow("Atlassian Email:", jiraEmailField))
+            add(Box.createVerticalStrut(8))
+            add(formRow("API Token:", jiraApiTokenField))
+            add(Box.createVerticalStrut(8))
+            add(formRow("Issue Key Regex:", jiraIssueKeyPatternField))
+            add(Box.createVerticalStrut(8))
+            add(noteRow("Approve/Merge posts 'Code Review Passed.'; Decline posts the AI summary and reassigns to the PR author when a JIRA user match is found."))
+        }
+
+        panel.add(header, BorderLayout.NORTH)
+        panel.add(form, BorderLayout.CENTER)
+        return panel
+    }
+
+    // =========================================================================
     // Tab 3 — Skills & Prompts
     // =========================================================================
 
@@ -462,6 +506,12 @@ class PRPilotSettingsConfigurable : Configurable {
         openAiKeyField.text     = s.getOpenAiKey()
         compatKeyField.text     = s.getOpenAiCompatKey()
 
+        // JIRA
+        jiraBaseUrlField.text         = s.getJiraBaseUrl()
+        jiraEmailField.text           = s.getJiraEmail()
+        jiraApiTokenField.text        = s.getJiraApiToken()
+        jiraIssueKeyPatternField.text = s.getJiraIssueKeyPattern().ifBlank { "[A-Z][A-Z0-9]+-\\d+" }
+
         // Skills — prefer on-disk project files, fall back to bundled defaults
         systemPromptEditor.text = loadProjectSkill("system_prompt")    ?: ""
         reviewRulesEditor.text  = loadProjectSkill("review_rules")     ?: ""
@@ -492,6 +542,7 @@ class PRPilotSettingsConfigurable : Configurable {
     override fun apply() {
         applyGitProviders()
         applyAiProvider()
+        applyJiraSettings()
         // Skills are saved individually via the "Save to disk" button in each tab
     }
 
@@ -555,6 +606,31 @@ class PRPilotSettingsConfigurable : Configurable {
         val compatKey = String(compatKeyField.password).trim()
         if (openAiKey.isNotBlank()) s.setOpenAiKey(openAiKey)
         if (compatKey.isNotBlank()) s.setOpenAiCompatKey(compatKey)
+    }
+
+    private fun applyJiraSettings() {
+        val s = PluginSettings.instance
+        val baseUrl = jiraBaseUrlField.text.trim()
+        val email = jiraEmailField.text.trim()
+        val token = String(jiraApiTokenField.password).trim()
+        val issueKeyPattern = jiraIssueKeyPatternField.text.trim().ifBlank { "[A-Z][A-Z0-9]+-\\d+" }
+
+        if (issueKeyPattern.isNotBlank()) {
+            runCatching { Regex(issueKeyPattern) }.getOrElse {
+                JOptionPane.showMessageDialog(
+                    tabs,
+                    "Issue Key Regex is invalid: ${it.message}",
+                    "JIRA Settings Validation Error",
+                    JOptionPane.ERROR_MESSAGE
+                )
+                return
+            }
+        }
+
+        s.setJiraBaseUrl(baseUrl)
+        s.setJiraEmail(email)
+        s.setJiraApiToken(token)
+        s.setJiraIssueKeyPattern(issueKeyPattern)
     }
 
     override fun reset() {

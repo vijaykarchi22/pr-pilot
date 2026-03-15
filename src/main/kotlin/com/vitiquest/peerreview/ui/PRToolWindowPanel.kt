@@ -24,6 +24,8 @@ import com.vitiquest.peerreview.ai.OpenAIClient
 import com.vitiquest.peerreview.analysis.CodeAnalyzer
 import com.vitiquest.peerreview.bitbucket.PullRequest
 import com.vitiquest.peerreview.bitbucket.PullRequestService
+import com.vitiquest.peerreview.jira.JiraIntegrationService
+import com.vitiquest.peerreview.jira.ReviewOutcome
 import com.vitiquest.peerreview.settings.GitProvider
 import com.vitiquest.peerreview.settings.PluginSettings
 import com.vitiquest.peerreview.utils.GitUtils
@@ -54,6 +56,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
 
     private val service  = PullRequestService()
     private val aiClient = OpenAIClient(project)
+    private val jiraService = JiraIntegrationService()
 
     @Volatile private var disposed = false
 
@@ -691,63 +694,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         setStatus("${if (forceRegenerate) "Regenerating" else "Building"} AI summary for PR #${pr.id}…")
         runInBackground {
             try {
-                // 1. Fetch diff stat (list of changed files) and full unified diff
-                val diffStat     = service.getDiffStat(info.owner, info.repoSlug, pr.id)
-                val rawDiff      = service.getPullRequestDiff(info.owner, info.repoSlug, pr.id)
-                val changedFiles = diffStat.take(20).mapNotNull { it.newFile?.path ?: it.oldFile?.path }
-                val basePath     = project.basePath ?: ""
-
-                // 2. Split raw diff into per-file patches keyed by file path
-                val patchMap = buildPatchMap(rawDiff)
-
-                // 3. For each changed file: read local content + run CodeAnalyzer
-                val analyses = changedFiles.map { path ->
-                    val content = ReadAction.compute<String, Exception> {
-                        val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
-                        vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
-                    }
-                    val patch = patchMap[path] ?: patchMap.entries
-                        .firstOrNull { it.key.endsWith(path) || path.endsWith(it.key) }?.value ?: ""
-                    CodeAnalyzer.analyze(path, content, patch)
-                }
-
-                // 4. Resolve imported local files from all changed files
-                //    — walk each analysis's imports, find matching project files,
-                //      analyze them too so the AI has full context (marked isReferenced=true)
-                val alreadyIncluded = changedFiles.toMutableSet()
-                val referencedAnalyses = mutableListOf<CodeAnalyzer.FileAnalysis>()
-
-                analyses.forEach { analysis ->
-                    val localPaths = CodeAnalyzer.resolveLocalImports(
-                        imports          = analysis.imports,
-                        language         = analysis.language,
-                        projectRoot      = basePath,
-                        alreadyIncluded  = alreadyIncluded
-                    )
-                    localPaths.forEach { refPath ->
-                        alreadyIncluded.add(refPath)
-                        val refContent = ReadAction.compute<String, Exception> {
-                            val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, refPath))
-                            vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
-                        }
-                        if (refContent.isNotBlank()) {
-                            referencedAnalyses.add(
-                                CodeAnalyzer.analyze(refPath, refContent, "", isReferenced = true)
-                            )
-                        }
-                    }
-                }
-
-                setStatus("Generating AI review for PR #${pr.id} (${analyses.size} changed, ${referencedAnalyses.size} referenced)…")
-                val prContext = OpenAIClient.PrContext(
-                    id                = pr.id,
-                    title             = pr.title,
-                    author            = pr.author.displayName,
-                    sourceBranch      = pr.source.branch.name,
-                    destinationBranch = pr.destination.branch.name,
-                    fileCount         = analyses.size
-                )
-                val summary = aiClient.generateSummary(buildPrompt(pr, analyses, referencedAnalyses), prContext)
+                val summary = buildAiSummaryText(pr, info)
                 invokeLater {
                     aiSummaryCache[pr.id] = summary          // store in cache
                     showSummaryDialog(pr, summary, info)
@@ -760,6 +707,65 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
                 }
             }
         }
+    }
+
+    private fun buildAiSummaryText(pr: PullRequest, info: RepoInfo): String {
+        val diffStat     = service.getDiffStat(info.owner, info.repoSlug, pr.id)
+        val rawDiff      = service.getPullRequestDiff(info.owner, info.repoSlug, pr.id)
+        val changedFiles = diffStat.take(20).mapNotNull { it.newFile?.path ?: it.oldFile?.path }
+        val basePath     = project.basePath ?: ""
+
+        val patchMap = buildPatchMap(rawDiff)
+        val analyses = changedFiles.map { path ->
+            val content = ReadAction.compute<String, Exception> {
+                val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, path))
+                vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
+            }
+            val patch = patchMap[path] ?: patchMap.entries
+                .firstOrNull { it.key.endsWith(path) || path.endsWith(it.key) }?.value ?: ""
+            CodeAnalyzer.analyze(path, content, patch)
+        }
+
+        val alreadyIncluded = changedFiles.toMutableSet()
+        val referencedAnalyses = mutableListOf<CodeAnalyzer.FileAnalysis>()
+
+        analyses.forEach { analysis ->
+            val localPaths = CodeAnalyzer.resolveLocalImports(
+                imports = analysis.imports,
+                language = analysis.language,
+                projectRoot = basePath,
+                alreadyIncluded = alreadyIncluded
+            )
+            localPaths.forEach { refPath ->
+                alreadyIncluded.add(refPath)
+                val refContent = ReadAction.compute<String, Exception> {
+                    val vf = LocalFileSystem.getInstance().findFileByIoFile(File(basePath, refPath))
+                    vf?.let { runCatching { String(it.contentsToByteArray()) }.getOrElse { "" } } ?: ""
+                }
+                if (refContent.isNotBlank()) {
+                    referencedAnalyses.add(
+                        CodeAnalyzer.analyze(refPath, refContent, "", isReferenced = true)
+                    )
+                }
+            }
+        }
+
+        invokeLater {
+            setStatus("Generating AI review for PR #${pr.id} (${analyses.size} changed, ${referencedAnalyses.size} referenced)…")
+        }
+        val prContext = OpenAIClient.PrContext(
+            id                = pr.id,
+            title             = pr.title,
+            author            = pr.author.displayName,
+            sourceBranch      = pr.source.branch.name,
+            destinationBranch = pr.destination.branch.name,
+            fileCount         = analyses.size
+        )
+        return aiClient.generateSummary(buildPrompt(pr, analyses, referencedAnalyses), prContext)
+    }
+
+    private fun getOrBuildAiSummary(pr: PullRequest, info: RepoInfo): String {
+        return aiSummaryCache[pr.id] ?: buildAiSummaryText(pr, info).also { aiSummaryCache[pr.id] = it }
     }
 
     /**
@@ -1002,7 +1008,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
          * Asks whether to post the summary as a comment, then executes [action].
          * Closes the dialog after the action completes.
          */
-        fun executeWithOptionalComment(actionLabel: String, action: () -> Unit) {
+        fun executeWithOptionalComment(actionLabel: String, reviewOutcome: ReviewOutcome, action: () -> Unit) {
             val choice = JOptionPane.showOptionDialog(
                 dialog,
                 "Post AI summary as a comment on PR #${pr.id} before ${actionLabel.lowercase()}ing?",
@@ -1023,8 +1029,21 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
                         service.postComment(info.owner, info.repoSlug, pr.id, summary)
                     }
                     action()
+                    val jiraMessage = runCatching {
+                        jiraService.syncReviewOutcome(
+                            pr = pr,
+                            outcome = reviewOutcome,
+                            summary = if (reviewOutcome == ReviewOutcome.DECLINED) summary else null
+                        ).userMessage()
+                    }.getOrElse { "JIRA sync failed: ${it.message}" }
                     invokeLater {
-                        notify("PR #${pr.id} ${actionLabel.lowercase()}d.", NotificationType.INFORMATION)
+                        notify(
+                            buildString {
+                                append("PR #${pr.id} ${actionLabel.lowercase()}d.")
+                                if (!jiraMessage.isNullOrBlank()) append(" $jiraMessage")
+                            },
+                            NotificationType.INFORMATION
+                        )
                         loadPullRequests()
                     }
                 } catch (e: Exception) {
@@ -1036,9 +1055,9 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
             }
         }
 
-        approveBtn.addActionListener  { executeWithOptionalComment("Approve")  { service.approvePullRequest(info.owner, info.repoSlug, pr.id) } }
-        mergeBtn.addActionListener    { executeWithOptionalComment("Merge")    { service.mergePullRequest(info.owner, info.repoSlug, pr.id) } }
-        declineBtn.addActionListener  { executeWithOptionalComment(if (isGH) "Close" else "Decline") { service.declinePullRequest(info.owner, info.repoSlug, pr.id) } }
+        approveBtn.addActionListener  { executeWithOptionalComment("Approve", ReviewOutcome.APPROVED)  { service.approvePullRequest(info.owner, info.repoSlug, pr.id) } }
+        mergeBtn.addActionListener    { executeWithOptionalComment("Merge", ReviewOutcome.MERGED)    { service.mergePullRequest(info.owner, info.repoSlug, pr.id) } }
+        declineBtn.addActionListener  { executeWithOptionalComment(if (isGH) "Close" else "Decline", ReviewOutcome.DECLINED) { service.declinePullRequest(info.owner, info.repoSlug, pr.id) } }
 
         dialog.isVisible = true
     }
@@ -1194,8 +1213,17 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         runInBackground {
             try {
                 service.approvePullRequest(info.owner, info.repoSlug, pr.id)
+                val jiraMessage = runCatching {
+                    jiraService.syncReviewOutcome(pr, ReviewOutcome.APPROVED).userMessage()
+                }.getOrElse { "JIRA sync failed: ${it.message}" }
                 invokeLater {
-                    notify("PR #${pr.id} approved.", NotificationType.INFORMATION)
+                    notify(
+                        buildString {
+                            append("PR #${pr.id} approved.")
+                            if (!jiraMessage.isNullOrBlank()) append(" $jiraMessage")
+                        },
+                        NotificationType.INFORMATION
+                    )
                     loadPullRequests()
                 }
             } catch (e: Exception) {
@@ -1220,9 +1248,22 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         setStatus("${actionLabel}ing PR #${pr.id}…")
         runInBackground {
             try {
+                val summary = runCatching {
+                    invokeLater { setStatus("Generating AI summary for PR #${pr.id}…") }
+                    getOrBuildAiSummary(pr, info)
+                }.getOrNull()
                 service.declinePullRequest(info.owner, info.repoSlug, pr.id)
+                val jiraMessage = runCatching {
+                    jiraService.syncReviewOutcome(pr, ReviewOutcome.DECLINED, summary).userMessage()
+                }.getOrElse { "JIRA sync failed: ${it.message}" }
                 invokeLater {
-                    notify("PR #${pr.id} ${actionLabel.lowercase()}d.", NotificationType.WARNING)
+                    notify(
+                        buildString {
+                            append("PR #${pr.id} ${actionLabel.lowercase()}d.")
+                            if (!jiraMessage.isNullOrBlank()) append(" $jiraMessage")
+                        },
+                        NotificationType.WARNING
+                    )
                     loadPullRequests()
                 }
             } catch (e: Exception) {
@@ -1259,8 +1300,17 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         runInBackground {
             try {
                 service.mergePullRequest(info.owner, info.repoSlug, pr.id)
+                val jiraMessage = runCatching {
+                    jiraService.syncReviewOutcome(pr, ReviewOutcome.MERGED).userMessage()
+                }.getOrElse { "JIRA sync failed: ${it.message}" }
                 invokeLater {
-                    notify("PR #${pr.id} merged successfully.", NotificationType.INFORMATION)
+                    notify(
+                        buildString {
+                            append("PR #${pr.id} merged successfully.")
+                            if (!jiraMessage.isNullOrBlank()) append(" $jiraMessage")
+                        },
+                        NotificationType.INFORMATION
+                    )
                     loadPullRequests()
                 }
             } catch (e: Exception) {

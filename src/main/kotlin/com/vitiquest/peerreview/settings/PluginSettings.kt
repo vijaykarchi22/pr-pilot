@@ -48,6 +48,10 @@ class PluginSettings : PersistentStateComponent<PluginSettings.State> {
         var systemPrompt: String        = ""
         var gitHubPat: String           = ""
         var openAiKey: String           = ""
+        var jiraBaseUrl: String         = ""
+        var jiraEmail: String           = ""
+        var jiraApiToken: String        = ""
+        var jiraIssueKeyPattern: String = ""
 
         // Bitbucket per-repo tokens stored as a list of Entry objects
         // so the XmlSerializer handles them without a Map (maps with
@@ -120,6 +124,19 @@ class PluginSettings : PersistentStateComponent<PluginSettings.State> {
     fun setOpenAiKey(key: String) { myState.openAiKey = key.trim(); save() }
     fun getOpenAiCompatKey(): String = getOpenAiKey()
     fun setOpenAiCompatKey(key: String) = setOpenAiKey(key)
+
+    // ── JIRA / Atlassian ─────────────────────────────────────────────────────
+    fun getJiraBaseUrl(): String = myState.jiraBaseUrl
+    fun setJiraBaseUrl(url: String) { myState.jiraBaseUrl = url.trim(); save() }
+
+    fun getJiraEmail(): String = myState.jiraEmail
+    fun setJiraEmail(email: String) { myState.jiraEmail = email.trim(); save() }
+
+    fun getJiraApiToken(): String = myState.jiraApiToken
+    fun setJiraApiToken(token: String) { myState.jiraApiToken = token.trim(); save() }
+
+    fun getJiraIssueKeyPattern(): String = myState.jiraIssueKeyPattern
+    fun setJiraIssueKeyPattern(pattern: String) { myState.jiraIssueKeyPattern = pattern.trim(); save() }
 
     // ── Bitbucket per-repo PATs ───────────────────────────────────────────────
 
