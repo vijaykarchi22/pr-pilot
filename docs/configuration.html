@@ -50,6 +50,7 @@
       <a href="#compat">OpenAI-Compatible</a>
       <a href="#ollama">Ollama</a>
       <a href="#skills-tab">Skills &amp; Prompts</a>
+      <a href="#jira">Jira Integration</a>
       <a href="#persistence">Settings Persistence</a>
     </div>
     <div class="sidebar-section">
@@ -215,6 +216,59 @@ ollama serve</code></pre>
 
     <p>Changes saved here are immediately written to the <code>.md</code> files on disk. You can also edit the files directly in any text editor or the IDE's built-in file editor. See the <a href="skills.html">Skills guide</a> for a deep-dive on customisation.</p>
 
+    <!-- ══ JIRA ══ -->
+    <h2 id="jira">Tab 4 — Jira Integration</h2>
+    <p>PR Pilot can automatically sync review outcomes back to your Atlassian Jira project. When you <strong>approve</strong>, <strong>merge</strong>, or <strong>decline</strong> a pull request, PR Pilot detects the linked Jira issue and posts a comment — and on a declined PR, also reassigns the issue back to the PR author.</p>
+
+    <div class="callout">
+      <p><strong>Optional feature.</strong> Jira integration is entirely opt-in. If the Base URL, Email, or API Token fields are blank, the integration is silently skipped — no errors are shown.</p>
+    </div>
+
+    <h3>Fields</h3>
+    <table>
+      <thead><tr><th>Field</th><th>Description</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>Jira Base URL</td><td>The root URL of your Atlassian Jira instance</td><td><code>https://myteam.atlassian.net</code></td></tr>
+        <tr><td>Email</td><td>The Atlassian account email used to authenticate</td><td><code>you@example.com</code></td></tr>
+        <tr><td>API Token</td><td>An Atlassian API token (not your password)</td><td><code>ATATT3x…</code></td></tr>
+        <tr><td>Issue Key Pattern</td><td>Optional regex to match issue keys in PR data. Leave blank for the default pattern</td><td><code>[A-Z]+-\d+</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Generating an Atlassian API Token</h3>
+    <ol>
+      <li>Log in to <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">id.atlassian.com → Security → API tokens</a>.</li>
+      <li>Click <strong>Create API token</strong>.</li>
+      <li>Give it a label (e.g. <code>PR Pilot</code>) and click <strong>Create</strong>.</li>
+      <li>Copy the token — it is only shown once.</li>
+    </ol>
+    <p>Paste the token into the <strong>API Token</strong> field. Enter the email address you use to log in to Jira in the <strong>Email</strong> field.</p>
+
+    <h3>How issue keys are detected</h3>
+    <p>PR Pilot scans the following PR fields in order and takes the first match:</p>
+    <ol>
+      <li>PR <strong>title</strong></li>
+      <li>PR <strong>description</strong></li>
+      <li><strong>Source branch</strong> name</li>
+      <li><strong>Target branch</strong> name</li>
+      <li>PR <strong>URL</strong></li>
+    </ol>
+    <p>The default regex pattern is <code>[A-Z][A-Z0-9]+-\d+</code> (case-insensitive), which matches standard Jira keys such as <code>PROJ-123</code> or <code>MYAPP-42</code>. Specify a custom pattern in the <strong>Issue Key Pattern</strong> field if your project keys don't match the default.</p>
+
+    <h3>What happens on each action</h3>
+    <table>
+      <thead><tr><th>PR Action</th><th>Jira Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Approve</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
+        <tr><td>Merge</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
+        <tr><td>Decline</td><td>Posts the AI review summary (or a fallback message) as a comment, then reassigns the issue to the PR author</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <p><strong>Required Jira permissions:</strong> The Atlassian account must have <em>Browse Projects</em> and <em>Add Comments</em> permissions on the target project. For decline/reassign, it also needs <em>Assign Issues</em> permission.</p>
+    </div>
+
     <!-- ══ PERSISTENCE ══ -->
     <h2 id="persistence">Settings Persistence</h2>
     <p>All settings are stored in a single XML file:</p>
@@ -254,7 +308,7 @@ ollama serve</code></pre>
       <a href="changelog.html">Changelog</a>
       <a href="https://github.com/vitiquest/pr-pilot" target="_blank">GitHub</a>
     </nav>
-    <p class="footer-copy">© 2025 Vitiquest. Released under the MIT License.</p>
+    <p class="footer-copy">© 2026 Vitiquest. Released under the MIT License.</p>
   </div>
 </footer>
 <script src="assets/docs.js"></script>

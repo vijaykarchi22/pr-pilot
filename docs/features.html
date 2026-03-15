@@ -50,6 +50,7 @@
       <a href="#pr-actions">PR Actions</a>
       <a href="#multi-provider">Multi-Provider</a>
       <a href="#notifications">Notifications</a>
+      <a href="#jira-sync">Jira Integration</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-section-title">Related</div>
@@ -257,6 +258,33 @@
     <h3>Status bar</h3>
     <p>A persistent status label at the bottom of the PR Pilot tool window shows the current operation state in real time: <em>"Loading pull requests…"</em>, <em>"Building AI summary…"</em>, <em>"Ready"</em>, etc.</p>
 
+    <!-- ── Jira Integration ── -->
+    <h2 id="jira-sync">Jira Integration</h2>
+    <p>PR Pilot can automatically sync review outcomes to Atlassian Jira. When you approve, merge, or decline a pull request, the plugin detects the linked Jira issue key and posts a comment — and on a decline, also reassigns the issue back to the PR author.</p>
+
+    <h3>How issue keys are detected</h3>
+    <p>PR Pilot scans the following PR fields (in order) and uses the first matching Jira issue key found:</p>
+    <ol>
+      <li>PR <strong>title</strong></li>
+      <li>PR <strong>description</strong></li>
+      <li><strong>Source branch</strong> name</li>
+      <li><strong>Target branch</strong> name</li>
+      <li>PR <strong>URL</strong></li>
+    </ol>
+    <p>The default detection pattern matches standard Jira keys like <code>PROJ-123</code> or <code>MYAPP-42</code>. A custom regex can be set in <a href="configuration.html#jira">Settings → PR Pilot → Jira Integration</a>.</p>
+
+    <h3>What happens on each action</h3>
+    <table>
+      <thead><tr><th>PR Action</th><th>Jira Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Approve</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
+        <tr><td>Merge</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
+        <tr><td>Decline</td><td>Posts the AI review summary (or a fallback message) as a comment, then reassigns the issue to the PR author</td></tr>
+      </tbody>
+    </table>
+
+    <p>If Jira is not configured, or no issue key is found in the PR data, the integration is silently skipped. See the <a href="configuration.html#jira">Jira configuration guide</a> for setup instructions.</p>
+
   </main>
 </div>
 
@@ -275,7 +303,7 @@
       <a href="changelog.html">Changelog</a>
       <a href="https://github.com/vitiquest/pr-pilot" target="_blank">GitHub</a>
     </nav>
-    <p class="footer-copy">© 2025 Vitiquest. Released under the MIT License.</p>
+    <p class="footer-copy">© 2026 Vitiquest. Released under the MIT License.</p>
   </div>
 </footer>
 <script src="assets/docs.js"></script>
