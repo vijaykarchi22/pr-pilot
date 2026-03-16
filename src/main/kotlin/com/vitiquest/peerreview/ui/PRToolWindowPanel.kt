@@ -172,17 +172,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         val mergeBtn    = makeIconButton(AllIcons.Vcs.Merge,                    "Merge PR")
         val declineBtn  = makeIconButton(AllIcons.RunConfigurations.TestFailed, "Decline / Close PR")
 
-        val actionBtnPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 2, 3)).apply {
-            isOpaque = false
-            add(viewDiffBtn)
-            add(aiBtn)
-            add(JSeparator(JSeparator.VERTICAL).apply { preferredSize = Dimension(1, 20) })
-            add(approveBtn)
-            add(mergeBtn)
-            add(declineBtn)
-        }
-
-        // ── Filter bar ────────────────────────────────────────────────────────
+        // ── Row 1: Filter bar ─────────────────────────────────────────────────
         val filterBar = JPanel(GridBagLayout()).apply {
             isOpaque = false
             border   = JBUI.Borders.empty(4, 8, 4, 4)
@@ -203,12 +193,40 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
         gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0.0
         gbc.gridx = 7; filterBar.add(filterBtn, gbc)
 
-        // ── Combined top bar: filters left, action icons right ────────────────
-        val topBar = JPanel(BorderLayout()).apply {
+        val filterRow = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border   = MatteBorder(0, 0, 1, 0, JBColor.border())
+            add(filterBar, BorderLayout.CENTER)
+        }
+
+        // ── Row 2: PR action bar ───────────────────────────────────────────────
+        val actionLabel = JBLabel("PR Actions:").apply {
+            border = JBUI.Borders.empty(0, 8, 0, 4)
+            font   = Font(font.family, Font.PLAIN, 11)
+        }
+        val actionBtnPanel = JPanel(FlowLayout(FlowLayout.LEFT, 2, 3)).apply {
+            isOpaque = false
+            add(actionLabel)
+            add(viewDiffBtn)
+            add(aiBtn)
+            add(JSeparator(JSeparator.VERTICAL).apply { preferredSize = Dimension(1, 20) })
+            add(approveBtn)
+            add(mergeBtn)
+            add(declineBtn)
+        }
+
+        val actionRow = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border   = MatteBorder(0, 0, 1, 0, JBColor.border())
+            add(actionBtnPanel, BorderLayout.WEST)
+        }
+
+        // ── Combined top bar: two stacked rows ────────────────────────────────
+        val topBar = JPanel().apply {
+            layout     = BoxLayout(this, BoxLayout.Y_AXIS)
             background = JBColor.PanelBackground
-            border     = MatteBorder(0, 0, 1, 0, JBColor.border())
-            add(filterBar,     BorderLayout.CENTER)
-            add(actionBtnPanel, BorderLayout.EAST)
+            add(filterRow)
+            add(actionRow)
         }
 
         // ── PR list ───────────────────────────────────────────────────────────
@@ -1018,7 +1036,7 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
                 val sevLabelStr  = when (sev) { "critical" -> "🔴  CRITICAL"; "warning" -> "🟡  WARNING"; else -> "🟢  SUGGESTION" }
                 val sevColorVal  = when (sev) { "critical" -> JBColor(Color(0xC0392B), Color(0xFF6B6B)); "warning" -> JBColor(Color(0xB45309), Color(0xF5C518)); else -> JBColor(Color(0x166534), Color(0x4CAF50)) }
                 val sevBgVal     = when (sev) { "critical" -> JBColor(Color(0xFFF0EE), Color(0x3D1A1A)); "warning" -> JBColor(Color(0xFFFBEB), Color(0x2E2000)); else -> JBColor(Color(0xF0FFF4), Color(0x0D2E18)) }
-                val accentVal    = when (sev) { "critical" -> Color(0xC0392B); "warning" -> Color(0xB45309); else -> Color(0x166534) }
+                val accentVal    = when (sev) { "critical" -> if (isDark) Color(0xFF6B6B) else Color(0xC0392B); "warning" -> if (isDark) Color(0xF5C518) else Color(0xB45309); else -> if (isDark) Color(0x4CAF50) else Color(0x166534) }
 
                 // ── Severity pill ──────────────────────────────────────────────
                 val sevPill = object : JLabel(sevLabelStr) {
@@ -1695,23 +1713,34 @@ class PRToolWindowPanel(private val project: Project) : JPanel(BorderLayout()), 
             .createNotification(msg, type).notify(project)
     }
 
-    private fun makeIconButton(icon: Icon, tooltip: String) = JButton(icon).apply {
-        toolTipText         = tooltip
-        isBorderPainted     = false
-        isContentAreaFilled = false
-        isFocusPainted      = false
-        preferredSize       = Dimension(28, 28)
-        cursor              = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-        // Subtle highlight on hover
-        addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseEntered(e: java.awt.event.MouseEvent) {
-                isContentAreaFilled = true
-                background = JBColor(Color(0, 0, 0, 20), Color(255, 255, 255, 25))
-            }
-            override fun mouseExited(e: java.awt.event.MouseEvent) {
+    private fun makeIconButton(icon: Icon, tooltip: String): JButton {
+        return object : JButton(icon) {
+            private var hovered = false
+            init {
+                toolTipText         = tooltip
+                isBorderPainted     = false
                 isContentAreaFilled = false
+                isFocusPainted      = false
+                isOpaque            = false
+                preferredSize       = Dimension(28, 28)
+                cursor              = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseEntered(e: java.awt.event.MouseEvent) { hovered = true;  repaint() }
+                    override fun mouseExited(e: java.awt.event.MouseEvent)  { hovered = false; repaint() }
+                })
             }
-        })
+            override fun paintComponent(g: Graphics) {
+                if (hovered) {
+                    val g2 = g.create() as Graphics2D
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                    // Grey rounded background — visible in light theme, subtle in dark
+                    g2.color = JBColor(Color(0, 0, 0, 45), Color(255, 255, 255, 40))
+                    g2.fillRoundRect(0, 0, width, height, 6, 6)
+                    g2.dispose()
+                }
+                super.paintComponent(g)
+            }
+        }
     }
 
     private fun runInBackground(block: () -> Unit) {

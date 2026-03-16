@@ -35,6 +35,7 @@ object WelcomeDialog {
         val accent   = if (isDark) Color(0x4C9EFF) else Color(0x0550AE)
         val cardBg   = if (isDark) Color(0x3C3F41) else Color(0xFFFFFF)
         val divider  = if (isDark) Color(0x555555) else Color(0xDDDDDD)
+        val descHex  = if (isDark) "AAAAAA" else "666666"
 
         // ── Root panel ────────────────────────────────────────────────────────
         val root = JPanel(BorderLayout()).apply {
@@ -87,7 +88,11 @@ object WelcomeDialog {
             val card = JPanel().apply {
                 layout     = BoxLayout(this, BoxLayout.Y_AXIS)
                 background = cardBg
-                border     = JBUI.Borders.empty(14, 14, 14, 14)
+                border     = if (isDark) JBUI.Borders.empty(14, 14, 14, 14)
+                             else        BorderFactory.createCompoundBorder(
+                                             BorderFactory.createLineBorder(divider),
+                                             JBUI.Borders.empty(13, 13, 13, 13)
+                                         )
             }
             val icLbl = JLabel(icon).apply { alignmentX = Component.LEFT_ALIGNMENT }
             val ttLbl = JLabel(title).apply {
@@ -96,9 +101,8 @@ object WelcomeDialog {
                 border     = JBUI.Borders.emptyTop(6)
                 alignmentX = Component.LEFT_ALIGNMENT
             }
-            val dLbl = JBLabel("<html><body style='width:100px'>$desc</body></html>").apply {
+            val dLbl = JBLabel("<html><body style='width:100px; color:#$descHex'>$desc</body></html>").apply {
                 font       = Font(font.family, Font.PLAIN, 11)
-                foreground = JBColor(Color(0x666666), Color(0xAAAAAA))
                 border     = JBUI.Borders.emptyTop(4)
                 alignmentX = Component.LEFT_ALIGNMENT
             }
@@ -125,6 +129,7 @@ object WelcomeDialog {
             JButton(label, icon).apply {
                 isContentAreaFilled = false
                 isBorderPainted     = false
+                isOpaque            = false
                 horizontalAlignment = SwingConstants.LEFT
                 font       = Font(font.family, Font.PLAIN, 13)
                 foreground = accent
@@ -144,13 +149,26 @@ object WelcomeDialog {
             isOpaque = false
             border   = JBUI.Borders.emptyTop(28)
         }
-        val closeBtn = JButton("Get Started").apply {
-            font            = Font(font.family, Font.BOLD, 13)
-            background      = accent
-            foreground      = Color.WHITE
-            isFocusPainted  = false
-            border          = JBUI.Borders.empty(8, 20, 8, 20)
-            cursor          = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        // Use a custom paintComponent so the accent fill is visible in both
+        // light and dark themes — IntelliJ/macOS L&F ignores background on JButton.
+        val closeBtn = object : JButton("Get Started") {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = accent
+                g2.fillRoundRect(0, 0, width, height, 8, 8)
+                g2.dispose()
+                super.paintComponent(g)
+            }
+        }.apply {
+            font                = Font(font.family, Font.BOLD, 13)
+            isOpaque            = false
+            isContentAreaFilled = false
+            isBorderPainted     = false
+            isFocusPainted      = false
+            foreground          = Color.WHITE
+            border              = JBUI.Borders.empty(8, 20, 8, 20)
+            cursor              = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addActionListener { dialog.dispose() }
         }
         bottomBar.add(closeBtn)
