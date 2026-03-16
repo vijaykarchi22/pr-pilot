@@ -68,7 +68,6 @@
       <div class="cl-group">
         <div class="cl-group-title new">✦ Planned Features</div>
         <ul>
-          <li><strong>Inline AI Comments</strong> — Post AI-generated review comments directly onto specific lines of the pull request, visible to all reviewers in GitHub or Bitbucket</li>
           <li><strong>PR Conversation Thread</strong> — View and reply to existing review comments and conversations from within the IDE</li>
           <li><strong>Real-time Notifications</strong> — IDE balloon alerts when a PR is assigned to you, updated, or when CI/CD checks change status</li>
           <li><strong>Streaming AI Responses</strong> — See the AI review appear word-by-word in real time rather than waiting for the full response</li>
@@ -96,6 +95,12 @@
       <div class="cl-group">
         <div class="cl-group-title new">✦ New Features</div>
         <ul>
+          <li><strong>Inline AI comments</strong> — AI-generated per-line review comments are parsed from the AI response and posted directly onto pull request lines in Bitbucket Cloud or GitHub; the <code>system_prompt.md</code> instructs the AI to output a machine-parseable JSON block delimited by <code>&lt;!-- INLINE_COMMENTS_START --&gt;</code> / <code>&lt;!-- INLINE_COMMENTS_END --&gt;</code></li>
+          <li><strong>Request Changes action</strong> — posts all inline AI comments on the PR and registers a formal "Changes Requested" review in one click; also updates the linked Jira issue</li>
+          <li><strong>Post Inline Comments action</strong> — posts AI inline comments without a Changes Requested status; useful for advisory-only feedback</li>
+          <li><strong>Jira sync on Request Changes &amp; Inline Comments</strong> — Jira integration now covers Request Changes and Post Inline Comments flows in addition to Approve, Merge, and Decline</li>
+          <li><strong>Welcome &amp; onboarding screen</strong> — a splash screen shown on first plugin load with documentation and video links; re-openable at any time via the <span style="font-style:italic">ⓘ info</span> icon in the tool window status bar</li>
+          <li><strong>Animated progress spinner</strong> — loading states in the PR list and file list views now show a spinning indicator instead of static text</li>
           <li><strong>Jira integration</strong> — automatically post a comment on the linked Jira issue when a PR is approved, merged, or declined; on decline, reassigns the issue to the PR author and attaches the AI review summary</li>
           <li><strong>Jira issue key auto-detection</strong> — scans PR title, description, source/target branch names, and PR URL to find the issue key; supports custom regex patterns</li>
           <li><strong>GitHub &amp; Bitbucket Cloud support</strong> — browse, review, and manage pull requests from both providers</li>

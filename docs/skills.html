@@ -43,6 +43,7 @@
       <a href="#overview">Overview</a>
       <a href="#location">File Location</a>
       <a href="#system-prompt">system_prompt.md</a>
+      <a href="#inline-comments-format">Inline Comment Format</a>
       <a href="#review-rules">review_rules.md</a>
       <a href="#coding-standards">coding_standards.md</a>
       <a href="#custom-skills">Adding Custom Skills</a>
@@ -113,6 +114,7 @@
           <li>Severity labels: 🔴 Critical · 🟡 Warning · 🟢 Suggestion</li>
           <li>Output format: Overview → File Analysis → Summary table</li>
           <li>Tone: professional, direct, constructive</li>
+          <li><strong>Mandatory inline comments block</strong> — machine-parseable JSON appended to every response</li>
         </ul>
         <p><strong>When to customise:</strong> When you want a different output format, a different review persona (e.g. security-focused, performance-focused), or to enforce a specific Markdown structure that integrates with your documentation system.</p>
       </div>
@@ -134,6 +136,95 @@ OWASP Top 10 vulnerabilities and secure coding practices.
 1. **Security Summary** — critical issues first
 2. **File Analysis** — annotated with OWASP references
 3. **Risk Score** — Low / Medium / High / Critical</code></pre>
+
+    <!-- ── Inline Comments Format ── -->
+    <h2 id="inline-comments-format">Inline Comment Format in system_prompt.md</h2>
+    <p>PR Pilot uses a <strong>delimiter-based JSON block</strong> to extract per-line comments from the AI response. The <code>system_prompt.md</code> instructs the AI to append this block at the end of every reply. The plugin parses it and uses it to post inline comments on the pull request.</p>
+
+    <div class="callout warn">
+      <p><strong>Critical:</strong> If <code>system_prompt.md</code> does not contain this section, or the format is altered, inline comments will not be posted. The summary report will still appear, but <strong>Post Inline Comments</strong> and <strong>Request Changes</strong> will show <em>"No inline issues found"</em>.</p>
+    </div>
+
+    <h3>Required block in system_prompt.md</h3>
+    <p>The following section must appear verbatim in your <code>system_prompt.md</code>, at the end of the file after all other instructions:</p>
+
+<pre><code># MANDATORY: Inline Comments Block
+
+You MUST end EVERY response with the following block, no exceptions.
+It will be machine-parsed — the delimiters and JSON format must be exact.
+
+IMPORTANT:
+Do NOT wrap the JSON in a markdown code fence (no ```json).
+Output it as raw text between the two HTML comment tags.
+
+&lt;!-- INLINE_COMMENTS_START --&gt;
+[
+  {
+    "file": "relative/path/to/File.kt",
+    "line": 42,
+    "severity": "warning",
+    "comment": "Explain the specific issue on this line and how to fix it."
+  }
+]
+&lt;!-- INLINE_COMMENTS_END --&gt;
+
+Rules for the inline comments JSON:
+
+- Output the two HTML comment delimiters EXACTLY as shown — on their own lines
+- The content between the delimiters must be a valid JSON array (even if empty: [])
+- Do NOT use markdown code fences around the JSON
+- Each entry must contain:
+  - "file" (relative file path)
+  - "line" (integer line number)
+  - "severity" ("critical" | "warning" | "suggestion")
+  - "comment" (clear actionable explanation)
+
+Additional requirements:
+
+- Only include lines with a clear actionable issue
+- Prefer 3–10 comments when meaningful issues exist
+- Avoid duplicate or redundant comments
+- If nothing warrants an inline comment, output an empty array: []</code></pre>
+
+    <h3>Field reference</h3>
+    <table>
+      <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>file</code></td><td>string</td><td>Relative path from the repository root (e.g. <code>src/main/kotlin/App.kt</code>)</td></tr>
+        <tr><td><code>line</code></td><td>integer</td><td>Line number the comment should be anchored to (1-based)</td></tr>
+        <tr><td><code>severity</code></td><td>string</td><td><code>critical</code>, <code>warning</code>, or <code>suggestion</code></td></tr>
+        <tr><td><code>comment</code></td><td>string</td><td>Actionable feedback posted as the inline comment body on the PR</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How the plugin parses it</h3>
+    <ol>
+      <li>The full AI response is searched for <code>&lt;!-- INLINE_COMMENTS_START --&gt;</code>.</li>
+      <li>Everything before that delimiter is treated as the <strong>summary</strong> and rendered in the review dialog.</li>
+      <li>The JSON between the two delimiters is extracted and deserialized into line comments.</li>
+      <li>Any accidental <code>```json</code> fencing is automatically stripped before parse.</li>
+      <li>If deserialization fails or the delimiters are absent, the plugin falls back to summary-only display — no error is thrown to the user.</li>
+    </ol>
+
+    <h3>Example — valid AI output</h3>
+<pre><code>## Overview
+This PR adds a payment gateway integration. Overall the approach is sound, but
+there are two issues requiring attention before merging.
+
+## File Analysis
+...
+
+&lt;!-- INLINE_COMMENTS_START --&gt;
+[
+  {"file":"src/payment/PaymentService.kt","line":87,"severity":"critical","comment":"🔴 API key is hardcoded. Move to environment configuration or a secrets manager."},
+  {"file":"src/payment/PaymentService.kt","line":112,"severity":"warning","comment":"🟡 Missing null-check on `response.body` — will throw NPE if the gateway returns an empty response."},
+  {"file":"src/payment/PaymentRepository.kt","line":34,"severity":"suggestion","comment":"🟢 Consider extracting the query into a named constant for readability."}
+]
+&lt;!-- INLINE_COMMENTS_END --&gt;</code></pre>
+
+    <div class="callout">
+      <p><strong>Tip:</strong> The severity string in the JSON is automatically prefixed to the comment body when posted to the PR, so reviewers see the priority level without any extra configuration.</p>
+    </div>
 
     <!-- ── Review Rules ── -->
     <h2 id="review-rules">review_rules.md</h2>

@@ -45,6 +45,7 @@
       <a href="#filters">Filtering PRs</a>
       <a href="#diff-viewer">Diff Viewer</a>
       <a href="#ai-review">AI Code Review</a>
+      <a href="#inline-comments">Inline Comments</a>
       <a href="#code-analyzer">Code Analyzer</a>
       <a href="#import-analysis">Import Analysis</a>
       <a href="#pr-actions">PR Actions</a>
@@ -156,7 +157,32 @@
       <li>Rendered HTML (Markdown converted to styled HTML)</li>
       <li>IDE-aware theme colours (light/dark mode)</li>
       <li>Scrollable content area</li>
+      <li>Action buttons: <strong>Approve</strong>, <strong>Request Changes</strong> (posts inline comments), and <strong>Post Inline Comments</strong></li>
     </ul>
+
+    <!-- ── Inline Comments ── -->
+    <h2 id="inline-comments">Inline Comments</h2>
+    <p>After generating an AI review, PR Pilot can post the AI's feedback as <strong>inline comments directly on the pull request</strong> — visible to all reviewers in Bitbucket Cloud or GitHub, attached to the exact line number identified by the AI.</p>
+
+    <h3>How it works</h3>
+    <ol>
+      <li>Click <strong>⚡ AI Summary</strong> to generate the review report.</li>
+      <li>In the review dialog, click <strong>Post Inline Comments</strong> to push all AI-identified issues to the PR as line-level comments, <em>or</em> click <strong>Request Changes</strong> to post the comments <em>and</em> register a formal "Changes Requested" review at the same time.</li>
+      <li>The AI's <code>severity</code> label is prepended to each comment so reviewers instantly see 🔴 / 🟡 / 🟢 priority.</li>
+      <li>If Jira is configured, a Jira comment is also posted automatically when Request Changes is used.</li>
+    </ol>
+
+    <h3>Comment format posted to the PR</h3>
+    <p>Each inline comment follows this structure on the pull request:</p>
+    <pre><code>[warning] Missing null-check before dereferencing `user.profile`.
+Consider adding a guard clause or using the safe-call operator.</code></pre>
+
+    <h3>Inline comment schema (AI output)</h3>
+    <p>The AI is instructed to emit a machine-parseable JSON block at the end of every response, delimited by HTML comment tags. This block is parsed by the plugin to extract the per-line comments before displaying the dialog. See <a href="skills.html#inline-comments-format">Skills → Inline Comment Format</a> for the exact prompt contract.</p>
+
+    <div class="callout">
+      <p><strong>Empty array is valid:</strong> If the AI finds no issues worth flagging inline, it outputs <code>[]</code> and the dialog shows "No inline issues found". The overall summary is still displayed in full.</p>
+    </div>
 
     <!-- ── Code Analyzer ── -->
     <h2 id="code-analyzer">Code Analyzer</h2>
@@ -218,6 +244,8 @@
         <tr><td>✔ Approve</td><td>Approve PR</td><td>Approves the selected PR</td></tr>
         <tr><td>⤢ Merge</td><td>Merge PR</td><td>Merges the selected PR into its target branch</td></tr>
         <tr><td>✘ Decline</td><td>Decline / Close PR</td><td>Declines (Bitbucket) or closes (GitHub) the selected PR</td></tr>
+        <tr><td>💬 Request Changes</td><td>Request Changes</td><td>Posts inline AI comments on the PR and registers a "Changes Requested" review; also updates the linked Jira issue</td></tr>
+        <tr><td>📌 Post Inline Comments</td><td>Post Inline Comments</td><td>Posts AI-generated inline line comments on the PR without a formal Changes Requested status</td></tr>
       </tbody>
     </table>
 
@@ -280,6 +308,8 @@
         <tr><td>Approve</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
         <tr><td>Merge</td><td>Posts <em>"Code Review Passed."</em> as a comment on the linked issue</td></tr>
         <tr><td>Decline</td><td>Posts the AI review summary (or a fallback message) as a comment, then reassigns the issue to the PR author</td></tr>
+        <tr><td>Request Changes</td><td>Posts the AI review summary as a Jira comment with a note that changes were requested</td></tr>
+        <tr><td>Post Inline Comments</td><td>Posts the AI review summary as a Jira comment noting inline feedback was left on the PR</td></tr>
       </tbody>
     </table>
 
