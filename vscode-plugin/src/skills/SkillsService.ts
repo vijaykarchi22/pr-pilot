@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { Logger } from '../utils/Logger';
 
 const DEFAULT_SKILL_FILES = ['system_prompt.md', 'review_rules.md', 'coding_standards.md'];
 
@@ -34,7 +35,7 @@ export class SkillsService {
         }
       }
     } catch (err) {
-      console.warn('PR Pilot: could not initialize skills directory', err);
+      Logger.error(`[Skills] Could not initialise skills directory: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -96,11 +97,11 @@ export class SkillsService {
       const resourcePath = path.join(this.context.extensionPath, 'resources', 'skills', fileName);
       if (fs.existsSync(resourcePath)) {
         fs.copyFileSync(resourcePath, target);
-        console.log(`PR Pilot: seeded skill file → ${target}`);
+        Logger.info(`[Skills] Seeded ${fileName} → ${target}`);
         return true;
       }
     } catch (err) {
-      console.warn(`PR Pilot: failed to seed ${fileName}`, err);
+      Logger.error(`[Skills] Failed to seed ${fileName}: ${err instanceof Error ? err.message : String(err)}`);
     }
     return false;
   }

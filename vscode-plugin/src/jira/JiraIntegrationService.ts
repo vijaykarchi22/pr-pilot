@@ -1,6 +1,7 @@
 import { PullRequest } from '../models/PullRequest';
 import { Settings } from '../settings/Settings';
 import { JiraClient, JiraUser } from './JiraClient';
+import { Logger } from '../utils/Logger';
 
 export type ReviewOutcome = 'APPROVED' | 'MERGED' | 'DECLINED' | 'CHANGES_REQUESTED';
 
@@ -45,18 +46,19 @@ export class JiraIntegrationService {
 
     const issueKey = findAttachedIssueKey(pr, settings.jiraIssueKeyPattern);
     if (!issueKey) {
+      Logger.info(`[JIRA] No issue key found in PR #${pr.id} (title="${pr.title}", branch="${pr.source.branch.name}") — skipping sync.`);
       return { status: 'SKIPPED_NO_ISSUE' };
     }
 
+    Logger.info(`[JIRA] Syncing issue ${issueKey} | PR #${pr.id} | outcome=${outcome}`);
+
     const client = new JiraClient(baseUrl, email, token);
 
-    // Verify issue exists
     await client.getIssue(issueKey);
-
-    const commentBody = buildCommentBody(outcome, summary);
-    await client.addPlainTextComment(issueKey, commentBody);
+    await client.addPlainTextComment(issueKey, buildCommentBody(outcome, summary));
 
     if (outcome === 'APPROVED' || outcome === 'MERGED') {
+      Logger.info(`[JIRA] ${issueKey} comment posted (${outcome}).`);
       return { status: 'UPDATED', issueKey };
     }
 
@@ -64,6 +66,9 @@ export class JiraIntegrationService {
     const assignee = await resolvePrAuthor(pr, client);
     if (assignee) {
       await client.assignIssue(issueKey, assignee.accountId);
+      Logger.info(`[JIRA] ${issueKey} comment posted and reassigned to ${assignee.displayName}.`);
+    } else {
+      Logger.warn(`[JIRA] ${issueKey} comment posted but could not resolve JIRA user for "${pr.author.displayName}" — not reassigned.`);
     }
 
     return {

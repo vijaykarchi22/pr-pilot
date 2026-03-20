@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { Settings } from './settings/Settings';
+import { Logger } from './utils/Logger';
 import { SkillsService } from './skills/SkillsService';
 import { PRTreeProvider, PRItem } from './ui/PRTreeProvider';
 import { PRFilesTreeProvider, DiffFileItem } from './ui/PRFilesTreeProvider';
@@ -13,6 +14,7 @@ import { JiraIntegrationService, jiraSyncMessage } from './jira/JiraIntegrationS
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   // ── Bootstrap services ────────────────────────────────────────────────────
+  Logger.init(context);
   Settings.init(context);
   const skillsService = new SkillsService(context);
   await skillsService.ensureSkillsExist();

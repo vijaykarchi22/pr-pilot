@@ -64,7 +64,13 @@ export class JiraClient {
   async getIssue(issueKey: string): Promise<JiraIssue> {
     const url = `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary`;
     try {
-      const raw: JiraIssueResponse = JSON.parse(await httpGet(url, this.authHeaders(), TIMEOUT));
+      const body = await httpGet(url, this.authHeaders(), TIMEOUT);
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+      // Some Jira instances return HTTP 200 with an errorMessages array instead of a proper 4xx.
+      if (Array.isArray(parsed['errorMessages']) && (parsed['errorMessages'] as unknown[]).length > 0) {
+        throw new Error(`HTTP 404: ${body}`);
+      }
+      const raw = parsed as unknown as JiraIssueResponse;
       return { key: raw.key, summary: raw.fields.summary };
     } catch (err) {
       this.handleError(err, `getIssue(${issueKey})`);

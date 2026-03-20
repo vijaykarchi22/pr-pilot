@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { AiReviewResult, InlineComment } from '../models/InlineComment';
+import { Logger } from '../utils/Logger';
 import { PullRequest } from '../models/PullRequest';
 import { PullRequestService } from '../services/PullRequestService';
 import { OpenAIClient, PrContext } from '../ai/OpenAIClient';
@@ -35,21 +36,37 @@ export class AiReviewBuilder {
     const startIdx = rawText.indexOf(START_TAG);
     const endIdx = rawText.indexOf(END_TAG);
 
-    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
+    if (startIdx === -1) {
+      Logger.warn('[Parser] INLINE_COMMENTS_START tag missing — response may be truncated. Tail: ' + rawText.slice(-300));
       return { summary: rawText.trim(), inlineComments: [] };
+    }
+
+    if (endIdx === -1 || endIdx <= startIdx) {
+      Logger.warn('[Parser] INLINE_COMMENTS_END tag missing — response truncated mid-block. Attempting partial recovery.');
+      const partial = rawText.substring(startIdx + START_TAG.length).trim();
+      const recovered = tryExtractJsonArray(partial);
+      if (recovered.length > 0) {
+        Logger.info(`[Parser] Recovered ${recovered.length} inline comment(s) from partial response.`);
+      }
+      return { summary: rawText.substring(0, startIdx).trim(), inlineComments: recovered };
     }
 
     const summary = rawText.substring(0, startIdx).trim();
     let rawJson = rawText.substring(startIdx + START_TAG.length, endIdx).trim();
 
-    // Strip accidental markdown code fences
-    rawJson = rawJson.replace(/^```json?\n?/, '').replace(/```$/, '').trim();
+    // Strip any accidental markdown code fences (various forms)
+    rawJson = rawJson.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
 
     let inlineComments: InlineComment[] = [];
     try {
       inlineComments = JSON.parse(rawJson) as InlineComment[];
-    } catch {
-      inlineComments = [];
+      Logger.info(`[Parser] Parsed ${inlineComments.length} inline comment(s).`);
+    } catch (e) {
+      Logger.warn(`[Parser] Inline comments JSON parse failed: ${e instanceof Error ? e.message : String(e)} | raw (first 500): ${rawJson.slice(0, 500)}`);
+      inlineComments = tryExtractJsonArray(rawJson);
+      if (inlineComments.length > 0) {
+        Logger.info(`[Parser] Recovered ${inlineComments.length} comment(s) from partial JSON.`);
+      }
     }
 
     return { summary, inlineComments };
@@ -179,4 +196,25 @@ export class AiReviewBuilder {
       return '';
     }
   }
+}
+
+/**
+ * Best-effort extraction of a JSON array from a (possibly truncated) string.
+ * Finds the first `[`, then walks to build the largest valid prefix that parses.
+ */
+function tryExtractJsonArray(text: string): InlineComment[] {
+  const start = text.indexOf('[');
+  if (start === -1) { return []; }
+  // First try the whole string from `[`
+  const full = text.slice(start);
+  try { return JSON.parse(full) as InlineComment[]; } catch { /* fall through */ }
+  // Walk backwards from the end: drop chars until we can close the array
+  for (let end = full.length - 1; end > start; end--) {
+    const candidate = full.slice(0, end) + ']';
+    try {
+      const arr = JSON.parse(candidate);
+      if (Array.isArray(arr) && arr.length > 0) { return arr as InlineComment[]; }
+    } catch { /* keep shrinking */ }
+  }
+  return [];
 }

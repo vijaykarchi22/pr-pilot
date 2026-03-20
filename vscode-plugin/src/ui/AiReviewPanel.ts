@@ -114,7 +114,7 @@ export class AiReviewPanel {
 
     switch (message.command) {
       case 'regenerate':
-        this._panel.webview.postMessage({ command: 'setLoading', loading: true });
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: '⏳ Generating AI review…' });
         await this.onRegenerate();
         break;
 
@@ -129,6 +129,7 @@ export class AiReviewPanel {
           vscode.window.showWarningMessage('No inline comments selected.');
           return;
         }
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: `💬 Posting ${comments.length} comment(s)…` });
         try {
           await this.service.postInlineComments(
             this.repoInfo.owner,
@@ -139,12 +140,15 @@ export class AiReviewPanel {
           vscode.window.showInformationMessage(`Posted ${comments.length} inline comment(s) to PR #${this.pr.id}.`);
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to post comments: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this._panel.webview.postMessage({ command: 'setLoading', loading: false });
         }
         break;
       }
 
       case 'requestChanges': {
         const comments = message.comments ?? [];
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: '⚠️ Requesting changes…' });
         try {
           await this.service.requestChanges(
             this.repoInfo.owner,
@@ -153,13 +157,18 @@ export class AiReviewPanel {
             this.reviewResult.summary,
             comments
           );
-          const jiraResult = await jira.syncReviewOutcome(this.pr, 'CHANGES_REQUESTED', this.reviewResult.summary);
-          const jiraMsg = jiraSyncMessage(jiraResult);
+          const jiraResult = await jira.syncReviewOutcome(this.pr, 'CHANGES_REQUESTED', this.reviewResult.summary).catch((e: unknown) => {
+            vscode.window.showWarningMessage(`JIRA sync failed: ${e instanceof Error ? e.message : String(e)}`);
+            return undefined;
+          });
+          const jiraMsg = jiraResult ? jiraSyncMessage(jiraResult) : undefined;
           vscode.window.showInformationMessage(
             `Changes requested on PR #${this.pr.id}.${jiraMsg ? ` ${jiraMsg}` : ''}`
           );
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to request changes: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this._panel.webview.postMessage({ command: 'setLoading', loading: false });
         }
         break;
       }
@@ -169,15 +178,21 @@ export class AiReviewPanel {
           placeHolder: `Approve PR #${this.pr.id} — ${this.pr.title}?`,
         });
         if (confirmed !== 'Yes, Approve') return;
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: '✅ Approving PR…' });
         try {
           await this.service.approvePullRequest(this.repoInfo.owner, this.repoInfo.repoSlug, this.pr.id);
-          const jiraResult = await jira.syncReviewOutcome(this.pr, 'APPROVED');
-          const jiraMsg = jiraSyncMessage(jiraResult);
+          const jiraResult = await jira.syncReviewOutcome(this.pr, 'APPROVED').catch((e: unknown) => {
+            vscode.window.showWarningMessage(`JIRA sync failed: ${e instanceof Error ? e.message : String(e)}`);
+            return undefined;
+          });
+          const jiraMsg = jiraResult ? jiraSyncMessage(jiraResult) : undefined;
           vscode.window.showInformationMessage(
             `PR #${this.pr.id} approved.${jiraMsg ? ` ${jiraMsg}` : ''}`
           );
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to approve: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this._panel.webview.postMessage({ command: 'setLoading', loading: false });
         }
         break;
       }
@@ -187,15 +202,21 @@ export class AiReviewPanel {
           placeHolder: `Merge PR #${this.pr.id} — ${this.pr.title}?`,
         });
         if (confirmed !== 'Yes, Merge') return;
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: '🔀 Merging PR…' });
         try {
           await this.service.mergePullRequest(this.repoInfo.owner, this.repoInfo.repoSlug, this.pr.id);
-          const jiraResult = await jira.syncReviewOutcome(this.pr, 'MERGED');
-          const jiraMsg = jiraSyncMessage(jiraResult);
+          const jiraResult = await jira.syncReviewOutcome(this.pr, 'MERGED').catch((e: unknown) => {
+            vscode.window.showWarningMessage(`JIRA sync failed: ${e instanceof Error ? e.message : String(e)}`);
+            return undefined;
+          });
+          const jiraMsg = jiraResult ? jiraSyncMessage(jiraResult) : undefined;
           vscode.window.showInformationMessage(
             `PR #${this.pr.id} merged.${jiraMsg ? ` ${jiraMsg}` : ''}`
           );
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to merge: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this._panel.webview.postMessage({ command: 'setLoading', loading: false });
         }
         break;
       }
@@ -205,15 +226,21 @@ export class AiReviewPanel {
           placeHolder: `Decline/Close PR #${this.pr.id} — ${this.pr.title}?`,
         });
         if (confirmed !== 'Yes, Decline') return;
+        this._panel.webview.postMessage({ command: 'setLoading', loading: true, message: '❌ Declining PR…' });
         try {
           await this.service.declinePullRequest(this.repoInfo.owner, this.repoInfo.repoSlug, this.pr.id);
-          const jiraResult = await jira.syncReviewOutcome(this.pr, 'DECLINED', this.reviewResult.summary);
-          const jiraMsg = jiraSyncMessage(jiraResult);
+          const jiraResult = await jira.syncReviewOutcome(this.pr, 'DECLINED', this.reviewResult.summary).catch((e: unknown) => {
+            vscode.window.showWarningMessage(`JIRA sync failed: ${e instanceof Error ? e.message : String(e)}`);
+            return undefined;
+          });
+          const jiraMsg = jiraResult ? jiraSyncMessage(jiraResult) : undefined;
           vscode.window.showInformationMessage(
             `PR #${this.pr.id} declined.${jiraMsg ? ` ${jiraMsg}` : ''}`
           );
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to decline: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this._panel.webview.postMessage({ command: 'setLoading', loading: false });
         }
         break;
       }
@@ -540,6 +567,12 @@ export class AiReviewPanel {
 
   <div class="tab-content">
     <div id="tab-summary" class="tab-panel active">
+      <div id="thinking-section" class="thinking-section" style="display:none">
+        <details id="thinking-details" open>
+          <summary>🧠 Thinking…</summary>
+          <pre id="thinking-content" class="thinking-pre"></pre>
+        </details>
+      </div>
       <div class="summary">${summaryHtml}</div>
     </div>
     <div id="tab-comments" class="tab-panel">
@@ -560,7 +593,7 @@ export class AiReviewPanel {
   </div>
 
   <div class="loading-overlay" id="loadingOverlay">
-    <div class="spinner">⏳ Generating AI review…</div>
+    <div class="spinner" id="spinnerText">⏳ Working…</div>
   </div>
 
   <script>
@@ -578,24 +611,52 @@ export class AiReviewPanel {
         if (summaryEl) {
           summaryEl.innerHTML = '<span class="stream-thinking">🤔 Thinking…</span>';
         }
+        // Reset thinking section
+        const thinkingSection = document.getElementById('thinking-section');
+        const thinkingContent = document.getElementById('thinking-content');
+        const thinkingDetails = document.getElementById('thinking-details');
+        if (thinkingSection) { thinkingSection.style.display = 'none'; }
+        if (thinkingContent) { thinkingContent.textContent = ''; }
+        if (thinkingDetails) { thinkingDetails.setAttribute('open', ''); }
         // disable action buttons while streaming
         document.querySelectorAll('.action-bar button').forEach(b => b.disabled = true);
         document.getElementById('loadingOverlay').classList.remove('active');
       }
 
       if (msg.command === 'streamChunk') {
-        streamBuffer += msg.delta;
-        const summaryEl = document.querySelector('#tab-summary .summary');
-        if (summaryEl) {
-          // Render plain-text with a blinking cursor while streaming
-          summaryEl.innerHTML =
-            '<pre class="stream-pre">' + escapeHtml(streamBuffer) + '</pre>' +
-            '<span class="stream-cursor"></span>';
-          summaryEl.scrollTop = summaryEl.scrollHeight;
+        if (msg.isThinking) {
+          // Append to thinking box
+          const thinkingSection = document.getElementById('thinking-section');
+          const thinkingContent = document.getElementById('thinking-content');
+          if (thinkingSection) { thinkingSection.style.display = ''; }
+          if (thinkingContent) {
+            thinkingContent.textContent += msg.delta;
+            thinkingContent.scrollTop = thinkingContent.scrollHeight;
+          }
+          // clear the "🤔 Thinking…" placeholder once we have real tokens
+          const summaryEl = document.querySelector('#tab-summary .summary');
+          if (summaryEl && summaryEl.querySelector('.stream-thinking')) {
+            summaryEl.innerHTML = '';
+          }
+        } else {
+          streamBuffer += msg.delta;
+          const summaryEl = document.querySelector('#tab-summary .summary');
+          if (summaryEl) {
+            summaryEl.innerHTML =
+              '<pre class="stream-pre">' + escapeHtml(streamBuffer) + '</pre>' +
+              '<span class="stream-cursor"></span>';
+            summaryEl.scrollTop = summaryEl.scrollHeight;
+          }
         }
       }
 
       if (msg.command === 'streamDone') {
+        // Collapse the thinking section now that we have the final answer
+        const thinkingDetails = document.getElementById('thinking-details');
+        if (thinkingDetails) { thinkingDetails.removeAttribute('open'); }
+        const thinkingHeader = thinkingDetails ? thinkingDetails.querySelector('summary') : null;
+        if (thinkingHeader) { thinkingHeader.textContent = '🧠 Model reasoning'; }
+
         // Replace plain-text with fully rendered markdown
         const summaryEl = document.querySelector('#tab-summary .summary');
         if (summaryEl) { summaryEl.innerHTML = msg.summaryHtml; }
@@ -612,6 +673,9 @@ export class AiReviewPanel {
 
       if (msg.command === 'setLoading') {
         document.getElementById('loadingOverlay').classList.toggle('active', msg.loading);
+        if (msg.loading && msg.message) {
+          document.getElementById('spinnerText').textContent = msg.message;
+        }
       }
     });
 

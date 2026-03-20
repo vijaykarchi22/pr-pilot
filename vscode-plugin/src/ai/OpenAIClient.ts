@@ -1,6 +1,7 @@
 import { httpPostStream } from '../utils/httpClient';
 import { Settings } from '../settings/Settings';
 import { SkillsService } from '../skills/SkillsService';
+import { Logger } from '../utils/Logger';
 
 export interface PrContext {
   id: number;
@@ -91,7 +92,7 @@ export class OpenAIClient {
   ): Promise<string> {
     const settings = Settings.instance;
     const start = Date.now();
-    console.log(`[OpenAIClient] generateSummary start | provider=${settings.aiProvider}`);
+    Logger.info(`[AI] Review started | provider=${settings.aiProvider} | PR context=${prContext ? `#${prContext.id}` : 'none'}`);
 
     try {
       let result: string;
@@ -106,10 +107,10 @@ export class OpenAIClient {
           result = await this.callOllama(userPrompt, prContext, onChunk);
           break;
       }
-      console.log(`[OpenAIClient] generateSummary success | elapsed=${Date.now() - start}ms`);
+      Logger.info(`[AI] Review complete | elapsed=${Date.now() - start}ms`);
       return result;
     } catch (err) {
-      console.error(`[OpenAIClient] generateSummary failed | elapsed=${Date.now() - start}ms | error=${err instanceof Error ? err.message : String(err)}`);
+      Logger.error(`[AI] Review failed | elapsed=${Date.now() - start}ms | ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
   }
@@ -177,7 +178,7 @@ export class OpenAIClient {
     const body = JSON.stringify({
       model,
       messages,
-      max_tokens: 4096,
+      max_tokens: 16384,
       temperature: 0.3,
       stream: true,
     });
@@ -189,7 +190,7 @@ export class OpenAIClient {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
-    console.log(`[OpenAIClient] POST ${url} | model=${model} | readTimeout=${readTimeoutMs}ms | stream=true`);
+    Logger.info(`[AI] POST ${url} | model=${model} | readTimeout=${readTimeoutMs}ms`);
 
     let accumulated = '';
     let buffer = '';  // holds incomplete SSE lines between TCP chunks
@@ -222,7 +223,7 @@ export class OpenAIClient {
       }, readTimeoutMs);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[OpenAIClient] HTTP error: ${msg}`);
+      Logger.error(`[AI] HTTP error: ${msg}`);
       if (msg.includes('socket hang up') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('timeout')) {
         const secs = Math.round(readTimeoutMs / 1000);
         throw new Error(
@@ -251,7 +252,7 @@ export class OpenAIClient {
     if (!accumulated) {
       throw new Error('Empty response from AI — no content tokens were streamed.');
     }
-    console.log(`[OpenAIClient] Stream complete | total chars=${accumulated.length}`);
+    Logger.info(`[AI] Stream complete | chars=${accumulated.length}`);
     return accumulated;
   }
 

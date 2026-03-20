@@ -1,4 +1,5 @@
 import { httpGet, httpPost } from '../utils/httpClient';
+import { Logger } from '../utils/Logger';
 import { DiffStatEntry, PullRequest, Author, RefHolder, Branch, RepositoryRef, Links, HtmlLink } from '../models/PullRequest';
 import { InlineComment } from '../models/InlineComment';
 
@@ -176,7 +177,7 @@ export class BitbucketClient {
         await this.post(url, payload);
       } catch (err: unknown) {
         // Log and continue — don't abort all comments if one fails
-        console.warn(`PR Pilot: failed to post inline comment to ${ic.file}:${ic.line}`, err);
+        Logger.warn(`[Bitbucket] Failed to post inline comment to ${ic.file}:${ic.line} — ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
