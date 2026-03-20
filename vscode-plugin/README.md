@@ -84,7 +84,7 @@ Control exactly how the AI reviews your code using plain Markdown skill files co
 4. Click the **⚙ gear icon** to open Settings — connect your Git provider and AI provider
 5. Click **Refresh** to load pull requests
 
-📖 [Detailed Installation Guide →](https://vitiquest.github.io/pr-pilot/installation.html)
+📖 [Detailed Installation Guide →](https://thedeveloperbhai.github.io/pr-pilot/installation.html)
 
 ---
 
