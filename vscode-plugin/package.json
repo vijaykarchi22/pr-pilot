@@ -3,7 +3,7 @@
   "displayName": "PR Pilot",
   "description": "Review GitHub and Bitbucket Cloud Pull Requests from within VS Code with AI-powered code review",
   "version": "3.0.0",
-  "publisher": "vitiquest",
+  "publisher": "thedeveloperbhai",
   "engines": {
     "vscode": "^1.85.0"
   },
