@@ -594,3 +594,83 @@ img { max-width: 100%; }
 .token-fn    { color:#93c5fd; }
 .token-num   { color:#fde68a; }
 
+/* ── Platform Switcher ────────────────────────────────────────── */
+.platform-bar {
+  background: var(--bg-dark2);
+  border-bottom: 2px solid var(--border-dark);
+  padding: 10px 0;
+  position: sticky;
+  top: 56px; /* below the topnav */
+  z-index: 90;
+}
+.platform-bar-inner {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.platform-label {
+  color: var(--text-muted);
+  font-size: .82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.platform-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-dark);
+  border-radius: 10px;
+  padding: 4px;
+}
+.plat-btn {
+  border: 2px solid transparent;
+  background: transparent;
+  color: #8b949e;
+  padding: 7px 20px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: .88rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  transition: background .18s, color .18s, border-color .18s, box-shadow .18s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1;
+}
+/* IntelliJ button — active */
+.plat-btn[data-plat="intellij"].active {
+  background: #f97316;      /* orange */
+  border-color: #fb923c;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(249,115,22,.25);
+}
+/* VS Code button — active */
+.plat-btn[data-plat="vscode"].active {
+  background: #2563eb;      /* blue */
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.25);
+}
+/* Hover (inactive) */
+.plat-btn:hover:not(.active) {
+  background: var(--bg-dark3);
+  color: var(--text-dark);
+  border-color: var(--border-dark);
+}
+.plat-btn svg { flex-shrink: 0; opacity: .8; }
+.plat-btn.active svg { opacity: 1; }
+
+/* ── Platform Content Visibility ─────────────────────────────── */
+/* Default: both visible (no-JS fallback).
+   When body has a platform class, hide the other platform's content. */
+body.platform-intellij .plat-vsc,
+body.platform-vscode   .plat-ij {
+  display: none !important;
+}
+

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PR Pilot – AI-Powered Pull Request Review for IntelliJ</title>
-  <meta name="description" content="PR Pilot is an IntelliJ IDEA plugin that brings AI-powered pull request reviews, diff viewing, and PR management for GitHub and Bitbucket Cloud — right inside your IDE."/>
+  <title>PR Pilot – AI-Powered Pull Request Review</title>
+  <meta name="description" content="PR Pilot brings AI-powered pull request reviews, diff viewing, and PR management for GitHub and Bitbucket Cloud — available as an IntelliJ plugin and a VS Code extension."/>
   <link rel="stylesheet" href="assets/style.css"/>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"/>
 </head>
@@ -23,23 +23,46 @@
       <li><a href="skills.html">Skills</a></li>
       <li><a href="features.html">Features</a></li>
       <li><a href="changelog.html">Changelog</a></li>
-      <li><a class="btn-nav" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a></li>
+      <li>
+        <a class="btn-nav plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a>
+        <a class="btn-nav plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Get Extension ↗</a>
+      </li>
     </ul>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
       <span></span><span></span><span></span>
     </button>
   </div>
 </nav>
-
+<!-- ═══════════════════════  PLATFORM SWITCHER  ══════════════════════ -->
+<div class="platform-bar">
+  <div class="platform-bar-inner">
+    <span class="platform-label">Viewing docs for:</span>
+    <div class="platform-tabs">
+      <button class="plat-btn" data-plat="intellij">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+        IntelliJ
+      </button>
+      <button class="plat-btn" data-plat="vscode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 0L9 9.5 3.5 4.5 0 6l6 6-6 6 3.5 1.5L9 14.5 17.5 24 24 21V3z"/></svg>
+        VS Code
+      </button>
+    </div>
+  </div>
+</div>
 <!-- ═══════════════════════════  HERO  ══════════════════════════ -->
 <header class="hero">
   <div class="hero-inner">
     <div class="hero-badge">v3.0.0 — Now Available</div>
-    <h1>Smarter Pull&nbsp;Request Reviews,<br/>Right Inside IntelliJ</h1>
-    <p class="hero-sub">
+    <h1>Smarter Pull&nbsp;Request Reviews,<br/>Right Inside <span class="plat-ij">IntelliJ</span><span class="plat-vsc">VS Code</span></h1>
+    <p class="hero-sub plat-ij">
       PR Pilot connects IntelliJ IDEA to your GitHub or Bitbucket Cloud repositories,
-      lets you browse pull requests, inspect diffs side-by-side, and generates deep
-      AI code-review reports — without ever leaving the IDE.
+          lets you browse pull requests, inspect diffs side-by-side, and generates deep
+          AI code-review reports — without ever leaving the IDE.
+    </p>
+    <p class="hero-sub plat-vsc">
+      PR Pilot connects VS Code to your GitHub or Bitbucket Cloud repositories,
+          lets you browse pull requests, inspect diffs side-by-side, and generates deep
+          AI code-review reports — without ever leaving the editor.
     </p>
     <div class="hero-actions">
       <a class="btn-primary" href="installation.html">Get Started →</a>
@@ -48,7 +71,8 @@
     <div class="hero-meta">
       <span>🧠 OpenAI · OpenAI-Compatible · Ollama</span>
       <span>🔗 GitHub · Bitbucket Cloud</span>
-      <span>🛠️ IntelliJ IDEA 2023.2+</span>
+      <span class="plat-ij">🛠️ IntelliJ IDEA 2023.2+</span>
+      <span class="plat-vsc">🛠️ VS Code 1.85+</span>
     </div>
   </div>
   <div class="hero-visual">
@@ -131,7 +155,8 @@
       <div class="feature-card">
         <div class="feature-icon">⚡</div>
         <h3>Side-by-Side Diff Viewer</h3>
-        <p>Click any changed file to open IntelliJ's native <strong>side-by-side diff viewer</strong> with full syntax highlighting. Added, modified, deleted, and renamed files — all shown with colour-coded badges.</p>
+        <p class="plat-ij">Click any changed file to open IntelliJ's native <strong>side-by-side diff viewer</strong> with full syntax highlighting. Added, modified, deleted, and renamed files — all shown with colour-coded badges.</p>
+        <p class="plat-vsc">Click any changed file to open VS Code's built-in <strong>diff editor</strong> with full syntax highlighting. Added, modified, deleted, and renamed files — all shown with colour-coded badges.</p>
         <a href="features.html#diff-viewer" class="feature-link">Learn more →</a>
       </div>
 
@@ -145,14 +170,15 @@
       <div class="feature-card">
         <div class="feature-icon">📝</div>
         <h3>Skills &amp; Custom Prompts</h3>
-        <p>Seed three Markdown skill files in <code>.idea/pr-pilot/skills/</code>: <strong>system_prompt.md</strong>, <strong>review_rules.md</strong>, and <strong>coding_standards.md</strong>. Check them into source control so every teammate shares the same AI behaviour.</p>
+        <p>Seed three Markdown skill files in <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code>: <strong>system_prompt.md</strong>, <strong>review_rules.md</strong>, and <strong>coding_standards.md</strong>. Check them into source control so every teammate shares the same AI behaviour.</p>
         <a href="skills.html" class="feature-link">Skills guide →</a>
       </div>
 
       <div class="feature-card">
         <div class="feature-icon">✅</div>
         <h3>PR Actions</h3>
-        <p>Approve, decline, or <strong>merge</strong> pull requests directly from the tool window using icon buttons. No context-switching to a browser required.</p>
+        <p class="plat-ij">Approve, decline, or <strong>merge</strong> pull requests directly from the tool window using icon buttons. No context-switching to a browser required.</p>
+        <p class="plat-vsc">Approve, decline, or <strong>merge</strong> pull requests directly from the Activity Bar panel using toolbar buttons. No context-switching to a browser required.</p>
         <a href="features.html#pr-actions" class="feature-link">Learn more →</a>
       </div>
 
@@ -173,7 +199,8 @@
       <div class="feature-card">
         <div class="feature-icon">⚙️</div>
         <h3>Dedicated Settings Page</h3>
-        <p>A full-size, tabbed settings window lives under <strong>Settings → PR Pilot</strong>. Configure your Git provider, AI backend, and skill files all in one place — with inline editors for your prompt templates.</p>
+        <p class="plat-ij">A full-size, tabbed settings window lives under <strong>Settings → PR Pilot</strong>. Configure your Git provider, AI backend, and skill files all in one place — with inline editors for your prompt templates.</p>
+        <p class="plat-vsc">A full-size, tabbed settings panel is accessible via the <strong>gear icon</strong> in the PR Pilot panel. Configure your Git provider, AI backend, and skill files all in one place — with inline editors for your prompt templates.</p>
         <a href="configuration.html" class="feature-link">Configuration guide →</a>
       </div>
 
@@ -192,15 +219,17 @@
       <div class="step">
         <div class="step-num">1</div>
         <div class="step-body">
-          <h3>Install the Plugin</h3>
-          <p>Find <strong>PR Pilot</strong> in the JetBrains Marketplace (<em>Settings → Plugins → Marketplace</em>) and install it. No external CLI tools or server setup required.</p>
+          <h3>Install <span class="plat-ij">the Plugin</span><span class="plat-vsc">the Extension</span></h3>
+          <p class="plat-ij">Find <strong>PR Pilot</strong> in the JetBrains Marketplace (<em>Settings → Plugins → Marketplace</em>) and install it. No external CLI tools or server setup required.</p>
+          <p class="plat-vsc">Find <strong>PR Pilot</strong> in the VS Code Marketplace (<em>Extensions view → search PR Pilot</em>) and install it. No external CLI tools or server setup required.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">2</div>
         <div class="step-body">
           <h3>Connect Your Repository</h3>
-          <p>Open <strong>Settings → PR Pilot → Git Providers</strong>. Select GitHub or Bitbucket Cloud, and enter your Personal Access Token. For Bitbucket, add one row per repository — the plugin auto-selects the right token.</p>
+          <p class="plat-ij">Open <strong>Settings → PR Pilot → Git Providers</strong>. Select GitHub or Bitbucket Cloud, and enter your Personal Access Token. For Bitbucket, add one row per repository — the plugin auto-selects the right token.</p>
+          <p class="plat-vsc">Open the PR Pilot settings via the <strong>gear icon ⚙</strong> in the panel. Select GitHub or Bitbucket Cloud, and enter your Personal Access Token. For Bitbucket, add one row per repository — the extension auto-selects the right token.</p>
         </div>
       </div>
       <div class="step">
@@ -214,14 +243,15 @@
         <div class="step-num">4</div>
         <div class="step-body">
           <h3>Customise Your Skills</h3>
-          <p>PR Pilot seeds three Markdown files under <code>.idea/pr-pilot/skills/</code>. Edit <strong>review_rules.md</strong> and <strong>coding_standards.md</strong> to match your team's standards, then commit them to source control.</p>
+          <p>PR Pilot seeds three Markdown files under <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code>. Edit <strong>review_rules.md</strong> and <strong>coding_standards.md</strong> to match your team's standards, then commit them to source control.</p>
         </div>
       </div>
       <div class="step">
         <div class="step-num">5</div>
         <div class="step-body">
           <h3>Review Pull Requests</h3>
-          <p>Open the <strong>PR Pilot</strong> tool window on the right side of the IDE. Browse PRs, open diffs, and click the ⚡ AI button to generate a full code-review report — including impacted classes, methods, and referenced files.</p>
+          <p class="plat-ij">Open the <strong>PR Pilot</strong> tool window on the right side of the IDE. Browse PRs, open diffs, and click the ⚡ AI button to generate a full code-review report — including impacted classes, methods, and referenced files.</p>
+          <p class="plat-vsc">Click the <strong>PR Pilot</strong> icon in the VS Code Activity Bar. Browse PRs, open diffs, and click the ⚡ AI button to generate a full code-review report — including impacted classes, methods, and referenced files.</p>
         </div>
       </div>
     </div>
@@ -279,7 +309,8 @@
     </div>
     <div class="skills-preview">
       <div class="skills-tree">
-        <div class="tree-line"><span class="tree-folder">📁 .idea/</span></div>
+        <div class="tree-line plat-ij"><span class="tree-folder">📁 .idea/</span></div>
+        <div class="tree-line plat-vsc"><span class="tree-folder">📁 .vscode/</span></div>
         <div class="tree-line indent"><span class="tree-folder">📁 pr-pilot/</span></div>
         <div class="tree-line indent2"><span class="tree-folder">📁 skills/</span></div>
         <div class="tree-line indent3"><span class="tree-file active">📄 system_prompt.md</span></div>
@@ -351,9 +382,11 @@ and code reviewer.
         <div class="cl-tag tag-new">New</div>
         <ul>
           <li>GitHub &amp; Bitbucket Cloud pull request browser</li>
-          <li>Side-by-side diff viewer using IntelliJ's native diff engine</li>
+          <li class="plat-ij">Side-by-side diff viewer using IntelliJ's native diff engine</li>
+          <li class="plat-vsc">Side-by-side diff viewer using VS Code's built-in diff editor</li>
           <li>AI summary powered by OpenAI, Ollama, or any OpenAI-compatible endpoint</li>
-          <li>Per-project skill files in <code>.idea/pr-pilot/skills/</code></li>
+          <li class="plat-ij">Per-project skill files in <code>.idea/pr-pilot/skills/</code></li>
+          <li class="plat-vsc">Per-project skill files in <code>.vscode/pr-pilot/skills/</code></li>
           <li>Per-repository Bitbucket PAT registry for multi-repo support</li>
           <li>Import-chain analysis — referenced files included in AI context</li>
           <li>Approve, decline, and merge PRs from inside the IDE</li>
@@ -403,7 +436,8 @@ and code reviewer.
       <div class="roadmap-item">
         <div class="roadmap-icon">🔒</div>
         <h3>OS Keychain Integration</h3>
-        <p>Store all tokens securely in the OS keychain via IntelliJ's PasswordSafe, with no plaintext fallback.</p>
+        <p class="plat-ij">Store all tokens securely in the OS keychain via IntelliJ's PasswordSafe API, with no plaintext fallback.</p>
+        <p class="plat-vsc">Store all tokens securely via VS Code's SecretStorage API (system keychain integration), with no plaintext fallback.</p>
       </div>
       <div class="roadmap-item">
         <div class="roadmap-icon">🌐</div>
@@ -423,9 +457,11 @@ and code reviewer.
 <section class="section section-cta">
   <div class="container container-narrow" style="text-align:center">
     <h2>Start reviewing smarter today</h2>
-    <p>Install PR Pilot from the JetBrains Marketplace — it's free.</p>
+    <p class="plat-ij">Install PR Pilot from the JetBrains Marketplace — it's free.</p>
+    <p class="plat-vsc">Install PR Pilot from the VS Code Marketplace — it's free.</p>
     <div class="hero-actions" style="justify-content:center">
-      <a class="btn-primary" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Install from Marketplace</a>
+      <a class="btn-primary plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Install from Marketplace</a>
+      <a class="btn-primary plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Install from Marketplace</a>
       <a class="btn-secondary" href="installation.html">Installation Guide</a>
     </div>
   </div>

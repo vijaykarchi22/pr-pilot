@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Features – PR Pilot</title>
-  <meta name="description" content="Complete feature reference for PR Pilot: PR browser, diff viewer, AI code review, code analyzer, and PR actions."/>
+  <meta name="description" content="Complete feature reference for PR Pilot VS Code extension: PR browser, diff viewer, AI code review, code analyzer, and PR actions."/>
   <link rel="stylesheet" href="assets/style.css"/>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"/>
 </head>
@@ -22,13 +22,33 @@
       <li><a href="skills.html">Skills</a></li>
       <li><a href="features.html" style="color:#fff">Features</a></li>
       <li><a href="changelog.html">Changelog</a></li>
-      <li><a class="btn-nav" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a></li>
+      <li>
+        <a class="btn-nav plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a>
+        <a class="btn-nav plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Get Extension ↗</a>
+      </li>
     </ul>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
       <span></span><span></span><span></span>
     </button>
   </div>
 </nav>
+
+<!-- ═══════════════════════  PLATFORM SWITCHER  ══════════════════════ -->
+<div class="platform-bar">
+  <div class="platform-bar-inner">
+    <span class="platform-label">Viewing docs for:</span>
+    <div class="platform-tabs">
+      <button class="plat-btn" data-plat="intellij">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+        IntelliJ
+      </button>
+      <button class="plat-btn" data-plat="vscode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 0L9 9.5 3.5 4.5 0 6l6 6-6 6 3.5 1.5L9 14.5 17.5 24 24 21V3z"/></svg>
+        VS Code
+      </button>
+    </div>
+  </div>
+</div>
 
 <div class="page-hero">
   <h1>Feature Reference</h1>
@@ -65,20 +85,28 @@
     <div class="breadcrumb"><a href="index.html">Docs</a> › <span>Features</span></div>
     <h1>Feature Reference</h1>
 
-    <!-- ── Tool Window ── -->
-    <h2 id="tool-window">PR Pilot Tool Window</h2>
-    <p>PR Pilot lives in a <strong>dedicated tool window</strong> that docks to the right side of IntelliJ IDEA by default. Like all IntelliJ tool windows it can be:</p>
-    <ul>
-      <li>Docked to any edge (left, right, bottom)</li>
-      <li>Floated as an independent window</li>
-      <li>Pinned or set to auto-hide</li>
-      <li>Resized independently</li>
-    </ul>
-    <p>The tool window automatically detects the remote URL of the open project and initialises for the configured Git provider (GitHub or Bitbucket).</p>
+    <!-- ── Tool Window / Activity Bar Panel ── -->
+    <h2 id="tool-window">PR Pilot <span class="plat-ij">Tool Window</span><span class="plat-vsc">Activity Bar Panel</span></h2>
+    <div class="plat-ij">
+      <p>PR Pilot lives in a <strong>dedicated tool window</strong> that docks to the right side of the IDE. Click the PR Pilot icon in the side panel to expand it. The tool window contains two views:</p>
+      <ul>
+        <li><strong>Pull Requests</strong> — browse and manage PRs for the current repository</li>
+        <li><strong>Files Changed</strong> — inspect the changed files for the selected PR</li>
+      </ul>
+      <p>The tool window automatically detects the remote URL of the open project and initialises for the configured Git provider (GitHub or Bitbucket).</p>
+    </div>
+    <div class="plat-vsc">
+      <p>PR Pilot lives in a <strong>dedicated Activity Bar panel</strong> on the left side of VS Code. Click the PR Pilot icon in the Activity Bar to expand the panel, which contains two tree views:</p>
+      <ul>
+        <li><strong>Pull Requests</strong> — browse and manage PRs for the current repository</li>
+        <li><strong>Files Changed</strong> — inspect the changed files for the selected PR</li>
+      </ul>
+      <p>The panel automatically detects the remote URL of the open workspace and initialises for the configured Git provider (GitHub or Bitbucket).</p>
+    </div>
 
     <!-- ── PR Browser ── -->
     <h2 id="pr-browser">PR Browser</h2>
-    <p>The main view of the tool window lists all pull requests for the current repository. Each row in the list shows:</p>
+    <p>The main view of the <span class="plat-ij">tool window</span><span class="plat-vsc">panel</span> lists all pull requests for the current repository. Each row in the list shows:</p>
     <ul>
       <li><strong>PR ID</strong> — the numeric identifier</li>
       <li><strong>Title</strong> — full PR title</li>
@@ -117,16 +145,16 @@
     <p>Each row in the file list shows the file path and a colour-coded status badge: <strong>ADDED</strong>, <strong>MODIFIED</strong>, <strong>DELETED</strong>, or <strong>RENAMED</strong>.</p>
 
     <h3>Opening a diff</h3>
-    <p>Click any file row to open IntelliJ's native side-by-side diff viewer. The viewer:</p>
+    <p>Click any file row to open <span class="plat-ij">IntelliJ's native side-by-side diff viewer</span><span class="plat-vsc">VS Code's built-in diff editor</span>. The viewer:</p>
     <ul>
-      <li>Uses IntelliJ's built-in diff engine with full syntax highlighting</li>
-      <li>Reconstructs the "before" and "after" file contents from the unified diff patch</li>
-      <li>Allows keyboard navigation between diff hunks (<kbd>F7</kbd> / <kbd>Shift+F7</kbd>)</li>
-      <li>Tracks open diff windows — clicking the same file a second time focuses the existing window instead of opening a duplicate</li>
+      <li>Uses <span class="plat-ij">IntelliJ's built-in diff engine</span><span class="plat-vsc">VS Code's built-in diff engine</span> with full syntax highlighting</li>
+      <li>Reconstructs the “before” and “after” file contents from the unified diff patch</li>
+      <li>Supports keyboard navigation between diff hunks using <span class="plat-ij">IntelliJ's</span><span class="plat-vsc">VS Code's</span> standard diff shortcuts</li>
+      <li>Tracks open diff editors — clicking the same file a second time focuses the existing editor instead of opening a duplicate</li>
     </ul>
 
     <div class="callout">
-      <p><strong>Note:</strong> The diff viewer reconstructs file content from the patch. For very large files the reconstructed content may be truncated. For full file context, use the IDE's built-in Git diff tools after clicking through to the file.</p>
+      <p><strong>Note:</strong> The diff editor reconstructs file content from the patch. For very large files the reconstructed content may be truncated. For full file context, use <span class="plat-ij">IntelliJ's built-in Git diff tools</span><span class="plat-vsc">VS Code's built-in Git diff tools</span> after clicking through to the file.</p>
     </div>
 
     <!-- ── AI Review ── -->
@@ -155,7 +183,7 @@
     <p>The report is displayed in a resizable dialog window with:</p>
     <ul>
       <li>Rendered HTML (Markdown converted to styled HTML)</li>
-      <li>IDE-aware theme colours (light/dark mode)</li>
+      <li><span class="plat-ij">IDE-aware theme colours (light/dark mode)</span><span class="plat-vsc">IDE-aware theme colours (light/dark mode)</span></li>
       <li>Scrollable content area</li>
       <li>Action buttons: <strong>Approve</strong>, <strong>Request Changes</strong> (posts inline comments), and <strong>Post Inline Comments</strong></li>
     </ul>
@@ -274,17 +302,18 @@ Consider adding a guard clause or using the safe-call operator.</code></pre>
     <p>For Bitbucket, a <strong>client registry</strong> (<code>BitbucketClientRegistry</code>) maintains one pre-configured HTTP client per workspace/repo pair, each carrying the correct PAT for that repository. This makes multi-repo Bitbucket setups fully transparent — you never need to manually switch tokens.</p>
 
     <!-- ── Notifications ── -->
-    <h2 id="notifications">In-IDE Notifications</h2>
-    <p>PR Pilot uses IntelliJ's balloon notification system to surface important events:</p>
+    <h2 id="notifications">In-<span class="plat-ij">IDE</span><span class="plat-vsc">Editor</span> Notifications</h2>
+    <p>PR Pilot uses the IDE notification system to surface important events:</p>
     <ul>
       <li>Successfully approved, merged, or declined a PR</li>
       <li>AI summary generation started / completed</li>
       <li>Error conditions (authentication failure, API error, network timeout)</li>
     </ul>
-    <p>Notifications appear in the IDE's notification balloon (top-right) and are also logged to the <strong>Event Log</strong> tool window for later review.</p>
+    <p class="plat-ij">Notifications appear as IDE balloon alerts (bottom-right) and are also logged to the Event Log. They can be dismissed individually.</p>
+    <p class="plat-vsc">Notifications appear as VS Code info/error popups (bottom-right) and can be dismissed individually.</p>
 
     <h3>Status bar</h3>
-    <p>A persistent status label at the bottom of the PR Pilot tool window shows the current operation state in real time: <em>"Loading pull requests…"</em>, <em>"Building AI summary…"</em>, <em>"Ready"</em>, etc.</p>
+    <p>A persistent status label at the bottom of the PR Pilot panel shows the current operation state in real time: <em>"Loading pull requests…"</em>, <em>"Building AI summary…"</em>, <em>"Ready"</em>, etc.</p>
 
     <!-- ── Jira Integration ── -->
     <h2 id="jira-sync">Jira Integration</h2>
@@ -299,7 +328,7 @@ Consider adding a guard clause or using the safe-call operator.</code></pre>
       <li><strong>Target branch</strong> name</li>
       <li>PR <strong>URL</strong></li>
     </ol>
-    <p>The default detection pattern matches standard Jira keys like <code>PROJ-123</code> or <code>MYAPP-42</code>. A custom regex can be set in <a href="configuration.html#jira">Settings → PR Pilot → Jira Integration</a>.</p>
+    <p>The default detection pattern matches standard Jira keys like <code>PROJ-123</code> or <code>MYAPP-42</code>. A custom regex can be set in the <a href="configuration.html#jira">PR Pilot Settings → Jira Integration</a>.</p>
 
     <h3>What happens on each action</h3>
     <table>

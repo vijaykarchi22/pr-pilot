@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Configuration – PR Pilot</title>
-  <meta name="description" content="How to configure PR Pilot: connect GitHub or Bitbucket, configure AI providers, and manage skill files."/>
+  <meta name="description" content="How to configure PR Pilot in VS Code: connect GitHub or Bitbucket, configure AI providers, and manage skill files."/>
   <link rel="stylesheet" href="assets/style.css"/>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"/>
 </head>
@@ -22,7 +22,10 @@
       <li><a href="skills.html">Skills</a></li>
       <li><a href="features.html">Features</a></li>
       <li><a href="changelog.html">Changelog</a></li>
-      <li><a class="btn-nav" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a></li>
+      <li>
+        <a class="btn-nav plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a>
+        <a class="btn-nav plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Get Extension ↗</a>
+      </li>
     </ul>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
       <span></span><span></span><span></span>
@@ -30,9 +33,26 @@
   </div>
 </nav>
 
+<!-- ═══════════════════════  PLATFORM SWITCHER  ══════════════════════ -->
+<div class="platform-bar">
+  <div class="platform-bar-inner">
+    <span class="platform-label">Viewing docs for:</span>
+    <div class="platform-tabs">
+      <button class="plat-btn" data-plat="intellij">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+        IntelliJ
+      </button>
+      <button class="plat-btn" data-plat="vscode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 0L9 9.5 3.5 4.5 0 6l6 6-6 6 3.5 1.5L9 14.5 17.5 24 24 21V3z"/></svg>
+        VS Code
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="page-hero">
   <h1>Configuration</h1>
-  <p>Connect your Git provider, choose an AI backend, and tune your skill files — all from one settings page.</p>
+  <p>Connect your Git provider, choose an AI backend, and tune your skill files — all from one settings panel.</p>
 </div>
 
 <div class="doc-layout">
@@ -64,19 +84,32 @@
   <main class="doc-content">
 
     <div class="breadcrumb"><a href="index.html">Docs</a> › <span>Configuration</span></div>
-    <h1>Plugin Configuration</h1>
-    <p>PR Pilot has a dedicated, full-size settings page inside IntelliJ. It is split into three tabs: <strong>Git Providers</strong>, <strong>AI Provider</strong>, and <strong>Skills &amp; Prompts</strong>.</p>
+    <h1>Configuration</h1>
+    <p class="plat-ij">PR Pilot has a dedicated, full-size settings window accessible from within IntelliJ IDEA. It is split into three tabs: <strong>Git Providers</strong>, <strong>AI Provider</strong>, and <strong>Skills &amp; Prompts</strong>.</p>
+    <p class="plat-vsc">PR Pilot has a dedicated, full-size settings panel accessible from within VS Code. It is split into three tabs: <strong>Git Providers</strong>, <strong>AI Provider</strong>, and <strong>Skills &amp; Prompts</strong>.</p>
 
     <!-- ── Opening Settings ── -->
-    <h2 id="opening-settings">Opening the Settings Page</h2>
-    <ol>
-      <li>Open IntelliJ IDEA's main settings: <kbd>⌘,</kbd> (macOS) or <kbd>Ctrl+Alt+S</kbd> (Windows/Linux).</li>
-      <li>In the search bar type <strong>PR Pilot</strong>, or navigate to the <strong>PR Pilot</strong> entry directly.</li>
-      <li>The settings page opens with three tabs.</li>
-    </ol>
+    <h2 id="opening-settings">Opening the Settings Panel</h2>
+    <div class="plat-ij">
+      <ol>
+        <li>Go to <strong>Settings → PR Pilot</strong> in the IDE menu bar, <em>or</em></li>
+        <li>Click the <strong>⚙ gear icon</strong> in the PR Pilot tool window toolbar.</li>
+        <li>The settings window opens as a tabbed dialog.</li>
+      </ol>
+    </div>
+    <div class="plat-vsc">
+      <ol>
+        <li>Click the <strong>⚙ gear icon</strong> in the PR Pilot Activity Bar panel toolbar, <em>or</em></li>
+        <li>Open the Command Palette (<kbd>⌘⇧P</kbd> on macOS, <kbd>Ctrl+Shift+P</kbd> on Windows/Linux) and run <strong>PR Pilot: Open Settings</strong>.</li>
+        <li>The settings panel opens as a VS Code webview with three tabs.</li>
+      </ol>
+    </div>
 
-    <div class="callout">
-      <p><strong>Why a dedicated page?</strong> Plugin settings live in their own full-size window so there's enough room for multi-line prompt editors and the Bitbucket PAT table — something the narrow "Tools" panel couldn't accommodate.</p>
+    <div class="callout plat-ij">
+      <p><strong>Why a dedicated window?</strong> The settings dialog provides enough room for multi-line prompt editors and the Bitbucket PAT table — something the standard IntelliJ settings tree couldn't accommodate inline.</p>
+    </div>
+    <div class="callout plat-vsc">
+      <p><strong>Why a dedicated panel?</strong> The settings webview provides enough room for multi-line prompt editors and the Bitbucket PAT table — something the standard VS Code settings UI couldn't accommodate.</p>
     </div>
 
     <!-- ══ GIT PROVIDERS ══ -->
@@ -203,7 +236,7 @@ ollama serve</code></pre>
 
     <!-- ══ SKILLS TAB ══ -->
     <h2 id="skills-tab">Tab 3 — Skills &amp; Prompts</h2>
-    <p>This tab provides <strong>inline text editors</strong> for the three skill Markdown files stored in your project under <code>.idea/pr-pilot/skills/</code>.</p>
+    <p>This tab provides <strong>inline text editors</strong> for the three skill Markdown files stored in your project under <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code>.</p>
 
     <table>
       <thead><tr><th>File</th><th>Purpose</th></tr></thead>
@@ -214,7 +247,7 @@ ollama serve</code></pre>
       </tbody>
     </table>
 
-    <p>Changes saved here are immediately written to the <code>.md</code> files on disk. You can also edit the files directly in any text editor or the IDE's built-in file editor. See the <a href="skills.html">Skills guide</a> for a deep-dive on customisation.</p>
+    <p>Changes saved here are immediately written to the <code>.md</code> files on disk. You can also edit the files directly in any text editor<span class="plat-vsc"> or VS Code's built-in Markdown editor</span>. See the <a href="skills.html">Skills guide</a> for a deep-dive on customisation.</p>
 
     <!-- ══ JIRA ══ -->
     <h2 id="jira">Tab 4 — Jira Integration</h2>
@@ -271,24 +304,28 @@ ollama serve</code></pre>
 
     <!-- ══ PERSISTENCE ══ -->
     <h2 id="persistence">Settings Persistence</h2>
-    <p>All settings are stored in a single XML file:</p>
-    <pre><code>&lt;IDE config dir&gt;/options/PRPilot.xml</code></pre>
-
-    <p>The IDE config directory location depends on your OS:</p>
-    <table>
-      <thead><tr><th>OS</th><th>Path</th></tr></thead>
-      <tbody>
-        <tr><td>macOS</td><td><code>~/Library/Application Support/JetBrains/&lt;product&gt;&lt;version&gt;/options/</code></td></tr>
-        <tr><td>Windows</td><td><code>%APPDATA%\JetBrains\&lt;product&gt;&lt;version&gt;\options\</code></td></tr>
-        <tr><td>Linux</td><td><code>~/.config/JetBrains/&lt;product&gt;&lt;version&gt;/options/</code></td></tr>
-      </tbody>
-    </table>
-
-    <div class="callout warn">
-      <p><strong>Security note:</strong> Access tokens are stored in plaintext inside <code>PRPilot.xml</code>. Do not sync this file to shared or public locations. IDE cloud sync is disabled for this file by design (<code>RoamingType.DISABLED</code>).</p>
+    <div class="plat-ij">
+      <p>PR Pilot stores settings in two places:</p>
+      <ul>
+        <li><strong>Non-sensitive settings</strong> (AI provider, model names, Jira base URL, etc.) are stored in a file called <code>PRPilot.xml</code> in the IDE configuration directory, with <code>RoamingType.DISABLED</code> so they stay local to this machine.</li>
+        <li><strong>Sensitive settings</strong> (GitHub PAT, OpenAI API key, Jira API token, Bitbucket PATs) are stored via <strong>IntelliJ PasswordSafe</strong>, which is backed by the OS system keychain (macOS Keychain, Windows Credential Manager, KWallet on Linux). They are never written to disk in plaintext.</li>
+      </ul>
+      <div class="callout">
+        <p><strong>Security note:</strong> Access tokens are isolated in PasswordSafe and never appear in <code>PRPilot.xml</code>. They cannot be accidentally shared or synced.</p>
+      </div>
+    </div>
+    <div class="plat-vsc">
+      <p>PR Pilot stores settings in two places:</p>
+      <ul>
+        <li><strong>Non-sensitive settings</strong> (AI provider, model names, Jira base URL, etc.) are stored in VS Code's global configuration under the <code>prPilot.*</code> key namespace — typically in your profile's <code>settings.json</code>.</li>
+        <li><strong>Sensitive settings</strong> (GitHub PAT, OpenAI API key, Jira API token, Bitbucket PATs) are stored in <strong>VS Code SecretStorage</strong>, which is backed by the OS system keychain (macOS Keychain, Windows Credential Manager, libsecret on Linux). They are never written to disk in plaintext.</li>
+      </ul>
+      <div class="callout">
+        <p><strong>Security note:</strong> Access tokens never appear in <code>settings.json</code>. They are isolated in SecretStorage and cannot accidentally be synced via VS Code Settings Sync unless you explicitly enable secret sync.</p>
+      </div>
     </div>
 
-    <p>Settings are written to disk immediately on every change (not only on IDE shutdown), so you should never lose data after a crash.</p>
+    <p>Settings are written immediately on every change, so you should never lose data after a crash or reload.</p>
 
   </main>
 </div>

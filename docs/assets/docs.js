@@ -37,3 +37,34 @@
   });
 })();
 
+// ── Platform Switcher ─────────────────────────────────────────────
+(function () {
+  const PREF_KEY = 'prpilot-platform';
+  const DEFAULT  = 'intellij';
+
+  function getPref() {
+    try { return localStorage.getItem(PREF_KEY) || DEFAULT; } catch { return DEFAULT; }
+  }
+  function setPref(p) {
+    try { localStorage.setItem(PREF_KEY, p); } catch {}
+  }
+  function apply(plat) {
+    document.body.classList.remove('platform-intellij', 'platform-vscode');
+    document.body.classList.add('platform-' + plat);
+    document.querySelectorAll('.plat-btn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.plat === plat);
+    });
+  }
+
+  // Apply saved preference immediately (before paint where possible)
+  apply(getPref());
+
+  document.querySelectorAll('.plat-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var plat = btn.dataset.plat;
+      setPref(plat);
+      apply(plat);
+    });
+  });
+})();
+

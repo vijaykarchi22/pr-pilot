@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Installation – PR Pilot</title>
+  <meta name="description" content="How to install PR Pilot in VS Code from the VS Code Marketplace or a local VSIX file."/>
+  <link rel="stylesheet" href="assets/style.css"/>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml"/>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="index.html">
+      <img src="assets/logo.svg" alt="PR Pilot" width="32" height="32"/>
+      <span>PR Pilot</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="installation.html" style="color:#fff">Install</a></li>
+      <li><a href="configuration.html">Configuration</a></li>
+      <li><a href="skills.html">Skills</a></li>
+      <li><a href="features.html">Features</a></li>
+      <li><a href="changelog.html">Changelog</a></li>
+      <li>
+        <a class="btn-nav plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a>
+        <a class="btn-nav plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Get Extension ↗</a>
+      </li>
+    </ul>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+<!-- ═══════════════════════  PLATFORM SWITCHER  ══════════════════════ -->
+<div class="platform-bar">
+  <div class="platform-bar-inner">
+    <span class="platform-label">Viewing docs for:</span>
+    <div class="platform-tabs">
+      <button class="plat-btn" data-plat="intellij">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+        IntelliJ
+      </button>
+      <button class="plat-btn" data-plat="vscode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 0L9 9.5 3.5 4.5 0 6l6 6-6 6 3.5 1.5L9 14.5 17.5 24 24 21V3z"/></svg>
+        VS Code
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="page-hero">
+  <h1>Installation</h1>
+  <p>Get PR Pilot running in under two minutes.</p>
+</div>
+
+<div class="doc-layout">
+
+  <!-- ── Sidebar ── -->
+  <aside class="doc-sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Installation</div>
+      <a href="#requirements" class="sidebar-section a">Requirements</a>
+      <a href="#marketplace" class="active">From Marketplace</a>
+      <a href="#vsix" class="plat-ij">From ZIP File</a>
+      <a href="#vsix" class="plat-vsc">From VSIX File</a>
+      <a href="#first-run">First Run</a>
+      <a href="#uninstall">Uninstall</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Next Steps</div>
+      <a href="configuration.html">Configuration →</a>
+      <a href="skills.html">Skills Setup →</a>
+    </div>
+  </aside>
+
+  <!-- ── Content ── -->
+  <main class="doc-content">
+
+    <div class="breadcrumb"><a href="index.html">Docs</a> › <span>Installation</span></div>
+
+    <h1>Installing PR Pilot</h1>
+    <div class="plat-ij"><p>PR Pilot is distributed through the <strong>JetBrains Marketplace</strong> — the official plugin repository built into IntelliJ IDEA. You can also install it manually from a ZIP file if you are working in an air-gapped environment.</p></div>
+    <div class="plat-vsc"><p>PR Pilot is distributed through the <strong>VS Code Marketplace</strong> — the official extension repository built into VS Code. You can also install it manually from a VSIX file if you are working in an air-gapped environment.</p></div>
+
+    <!-- ── Requirements ── -->
+    <h2 id="requirements">Requirements</h2>
+    <table>
+      <thead><tr><th>Requirement</th><th>Minimum Version</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="plat-ij"><td>IntelliJ IDEA</td><td>2023.2 (233)</td><td>Any edition; Git4Idea plugin must be enabled</td></tr>
+        <tr class="plat-vsc"><td>VS Code</td><td>1.85.0</td><td>Any edition</td></tr>
+        <tr><td>Internet connection</td><td>—</td><td>Required for GitHub/Bitbucket API calls and cloud AI</td></tr>
+        <tr><td>Git repository</td><td>—</td><td>The open workspace must be a Git repository with a remote</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <p><strong>Ollama users:</strong> If you use the Ollama AI backend, you don't need an internet connection for AI calls — but you still need connectivity to reach GitHub/Bitbucket APIs.</p>
+    </div>
+
+    <!-- ── Marketplace ── -->
+<h2 id="marketplace">Install from <span class="plat-ij">JetBrains</span><span class="plat-vsc">VS Code</span> Marketplace</h2>
+    <p>This is the recommended installation method. The Marketplace handles all updates automatically.</p>
+
+    <div class="plat-ij">
+      <ol>
+        <li>Open IntelliJ IDEA and go to <strong>Settings → Plugins → Marketplace</strong>.</li>
+        <li>Search for <strong>PR Pilot</strong> in the search box.</li>
+        <li>Click <strong>Install</strong> next to the PR Pilot entry by <em>Vitiquest</em>.</li>
+        <li>Restart IntelliJ IDEA when prompted.</li>
+      </ol>
+      <div class="callout">
+        <p><strong>Tip:</strong> You can also install directly from the browser by visiting the <a href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">PR Pilot JetBrains Marketplace page</a> and clicking <strong>Install to IDE</strong>.</p>
+      </div>
+    </div>
+
+    <div class="plat-vsc">
+      <ol>
+        <li>Open VS Code and click the <strong>Extensions</strong> icon in the Activity Bar (<kbd>⌘⇧X</kbd> on macOS, <kbd>Ctrl+Shift+X</kbd> on Windows/Linux).</li>
+        <li>Search for <strong>PR Pilot</strong> in the search box.</li>
+        <li>Click <strong>Install</strong> next to the PR Pilot entry by <em>Vitiquest</em>.</li>
+        <li>The extension activates automatically — no restart required.</li>
+      </ol>
+      <div class="callout">
+        <p><strong>Tip:</strong> You can also install directly from the browser by visiting the <a href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">PR Pilot Marketplace page</a> and clicking <strong>Install</strong>.</p>
+      </div>
+    </div>
+
+<!-- ── Manual File Install ── -->
+    <h2 id="vsix">Install from <span class="plat-ij">ZIP File</span><span class="plat-vsc">VSIX File</span></h2>
+    <p>Use this method in air-gapped environments or if you want to pin to a specific version.</p>
+
+    <div class="plat-ij">
+      <ol>
+        <li>Download the latest <code>pr-pilot-plugin-&lt;version&gt;.zip</code> from the <a href="https://github.com/vitiquest/pr-pilot/releases" target="_blank">GitHub Releases</a> page.</li>
+        <li>Go to <strong>Settings → Plugins</strong>, click the <strong>⚙ gear icon</strong> → <strong>Install Plugin from Disk…</strong></li>
+        <li>Select the downloaded <code>.zip</code> file.</li>
+        <li>Restart IntelliJ IDEA when prompted.</li>
+      </ol>
+      <div class="callout warn">
+        <p><strong>Note:</strong> Plugins installed from disk do <em>not</em> receive automatic updates. You must repeat this process to upgrade.</p>
+      </div>
+    </div>
+
+    <div class="plat-vsc">
+      <ol>
+        <li>Download the latest <code>pr-pilot-&lt;version&gt;.vsix</code> from the <a href="https://github.com/vitiquest/pr-pilot/releases" target="_blank">GitHub Releases</a> page.</li>
+        <li>Open VS Code’s <strong>Extensions</strong> view (<kbd>⌘⇧X</kbd> / <kbd>Ctrl+Shift+X</kbd>).</li>
+        <li>Click the <strong>…</strong> menu (top-right of Extensions panel) → <strong>Install from VSIX…</strong></li>
+        <li>Select the downloaded <code>.vsix</code> file.</li>
+        <li>The extension activates immediately — no restart required.</li>
+      </ol>
+      <div class="callout warn">
+        <p><strong>Note:</strong> Extensions installed from VSIX do <em>not</em> receive automatic updates. You must repeat this process to upgrade.</p>
+      </div>
+    </div>
+
+    <!-- ── Build from Source ── -->
+    <h2 id="build">Build from Source</h2>
+    <p>If you want to contribute or test the latest changes:</p>
+
+    <div class="plat-ij">
+      <pre><code class="language-bash"># Clone the repository
+git clone https://github.com/vitiquest/pr-pilot.git
+cd pr-pilot/intellij-plugin
+
+# Build and package the plugin
+./gradlew buildPlugin
+# Output: build/distributions/pr-pilot-plugin-&lt;version&gt;.zip
+
+# Install the ZIP via Settings → Plugins → gear → Install Plugin from Disk
+
+# Or launch a sandboxed IntelliJ instance with the plugin loaded:
+./gradlew runIde</code></pre>
+    </div>
+
+    <div class="plat-vsc">
+      <pre><code class="language-bash"># Clone the repository
+git clone https://github.com/vitiquest/pr-pilot.git
+cd pr-pilot/vscode-plugin
+
+# Install dependencies
+npm install
+
+# Package the extension as a VSIX
+npm run package
+# Output: pr-pilot-&lt;version&gt;.vsix
+
+# Install using the VSIX method above, or press F5 in VS Code to
+# launch the extension in a sandboxed Extension Development Host.</code></pre>
+    </div>
+
+    <!-- ── First Run ── -->
+    <h2 id="first-run">First Run</h2>
+    <p>After installing, PR Pilot is ready to use immediately:</p>
+
+    <ol>
+      <li class="plat-ij">
+        <strong>Tool window:</strong> A new <strong>PR Pilot</strong> tool window icon appears in the right
+        side panel. Click it to open the pull request tool window.
+      </li>
+      <li class="plat-vsc">
+        <strong>Activity Bar icon:</strong> A new <strong>PR Pilot</strong> icon appears in the VS Code Activity Bar. Click it to open the pull request panel.
+      </li>
+      <li>
+        <strong>Skill files seeded:</strong> When you open a Git workspace for the first time, PR Pilot automatically creates
+        <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code>
+        with three default Markdown files. See the <a href="skills.html">Skills guide</a>.
+      </li>
+      <li>
+        <strong class="plat-ij">Configure credentials:</strong><strong class="plat-vsc">Configure credentials:</strong>
+        <span class="plat-ij">Go to <strong>Settings → PR Pilot</strong> to open the settings window. Connect your GitHub or Bitbucket account and choose an AI backend.</span>
+        <span class="plat-vsc">Click the <strong>⚙ gear icon</strong> in the PR Pilot panel to open Settings. Connect your GitHub or Bitbucket account and choose an AI backend.</span>
+        See the <a href="configuration.html">Configuration guide</a>.
+      </li>
+    </ol>
+
+    <div class="callout plat-ij">
+      <p><strong>Pro tip:</strong> The PR Pilot tool window docks to the right side panel by default. You can drag it to any side or detach it as a floating window like any other IntelliJ tool window.</p>
+    </div>
+    <div class="callout plat-vsc">
+      <p><strong>Pro tip:</strong> The PR Pilot icon appears in the Activity Bar by default. You can right-click the Activity Bar to show or hide it like any other VS Code extension panel.</p>
+    </div>
+
+    <!-- ── Uninstall ── -->
+    <h2 id="uninstall">Uninstalling</h2>
+
+    <div class="plat-ij">
+      <ol>
+        <li>Go to <strong>Settings → Plugins → Installed</strong>.</li>
+        <li>Find <strong>PR Pilot</strong> and click <strong>Uninstall</strong>.</li>
+        <li>Restart IntelliJ IDEA when prompted.</li>
+      </ol>
+      <p>PR Pilot stores settings in a file called <code>PRPilot.xml</code> inside the IDE configuration directory. Sensitive data (tokens, API keys) are stored via <strong>IntelliJ PasswordSafe</strong> (OS keychain). These are <em>not</em> deleted on uninstall. Remove <code>PRPilot.xml</code> from your IDE configuration directory and clear the PasswordSafe entries if you want a clean slate.</p>
+      <p>Skill files in <code>.idea/pr-pilot/skills/</code> are part of your project and are never touched during uninstall.</p>
+    </div>
+
+    <div class="plat-vsc">
+      <ol>
+        <li>Open the <strong>Extensions</strong> view (<kbd>⌘⇧X</kbd> / <kbd>Ctrl+Shift+X</kbd>).</li>
+        <li>Find <strong>PR Pilot</strong> and click the gear icon → <strong>Uninstall</strong>.</li>
+        <li>Reload VS Code when prompted.</li>
+      </ol>
+      <p>PR Pilot stores non-sensitive settings in VS Code's global <code>settings.json</code> under the <code>prPilot.*</code> key namespace. Sensitive data (tokens, API keys) are stored in VS Code's <strong>SecretStorage</strong> (system keychain). These are <em>not</em> deleted on uninstall. Remove them manually from your system keychain or VS Code settings if you want a clean slate.</p>
+      <p>Skill files in <code>.vscode/pr-pilot/skills/</code> are part of your project and are never touched during uninstall.</p>
+    </div>
+
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <img src="assets/logo.svg" alt="PR Pilot" width="28" height="28"/>
+      <span>PR Pilot</span>
+      <span class="footer-by">by <a href="https://www.vitiquest.com" target="_blank">Vitiquest</a></span>
+    </div>
+    <nav class="footer-links">
+      <a href="installation.html">Install</a>
+      <a href="configuration.html">Configure</a>
+      <a href="skills.html">Skills</a>
+      <a href="features.html">Features</a>
+      <a href="changelog.html">Changelog</a>
+      <a href="https://github.com/vitiquest/pr-pilot" target="_blank">GitHub</a>
+    </nav>
+    <p class="footer-copy">© 2026 Vitiquest. Released under the MIT License.</p>
+  </div>
+</footer>
+<script src="assets/docs.js"></script>
+</body>
+</html>
+

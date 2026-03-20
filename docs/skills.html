@@ -22,13 +22,33 @@
       <li><a href="skills.html" style="color:#fff">Skills</a></li>
       <li><a href="features.html">Features</a></li>
       <li><a href="changelog.html">Changelog</a></li>
-      <li><a class="btn-nav" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a></li>
+      <li>
+        <a class="btn-nav plat-ij" href="https://plugins.jetbrains.com/plugin/30645-pr-pilot" target="_blank">Get Plugin ↗</a>
+        <a class="btn-nav plat-vsc" href="https://marketplace.visualstudio.com/items?itemName=vitiquest.pr-pilot" target="_blank">Get Extension ↗</a>
+      </li>
     </ul>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
       <span></span><span></span><span></span>
     </button>
   </div>
 </nav>
+
+<!-- ═══════════════════════  PLATFORM SWITCHER  ══════════════════════ -->
+<div class="platform-bar">
+  <div class="platform-bar-inner">
+    <span class="platform-label">Viewing docs for:</span>
+    <div class="platform-tabs">
+      <button class="plat-btn" data-plat="intellij">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+        IntelliJ
+      </button>
+      <button class="plat-btn" data-plat="vscode">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 0L9 9.5 3.5 4.5 0 6l6 6-6 6 3.5 1.5L9 14.5 17.5 24 24 21V3z"/></svg>
+        VS Code
+      </button>
+    </div>
+  </div>
+</div>
 
 <div class="page-hero">
   <h1>Skills &amp; Prompts</h1>
@@ -77,23 +97,39 @@
     <h2 id="location">File Location</h2>
     <p>All skill files live under a fixed path inside the project directory:</p>
 
-    <pre><code>&lt;project-root&gt;/
+    <div class="plat-ij">
+      <pre><code>&lt;project-root&gt;/
 └── .idea/
     └── pr-pilot/
         └── skills/
             ├── system_prompt.md
             ├── review_rules.md
             └── coding_standards.md</code></pre>
+    </div>
+    <div class="plat-vsc">
+      <pre><code>&lt;project-root&gt;/
+└── .vscode/
+    └── pr-pilot/
+        └── skills/
+            ├── system_prompt.md
+            ├── review_rules.md
+            └── coding_standards.md</code></pre>
+    </div>
 
-    <p>This directory is created automatically the first time you open a project after installing PR Pilot. The three default files are seeded from templates bundled inside the plugin JAR — they are safe starting points that your team can then customise.</p>
+    <p>This directory is created automatically the first time you open a workspace after installing PR Pilot. The three default files are seeded from templates bundled inside the extension — they are safe starting points that your team can then customise.</p>
 
     <div class="callout warn">
-      <p><strong>.gitignore note:</strong> Many <code>.gitignore</code> templates exclude the entire <code>.idea/</code> folder. To share skill files, make sure to allow the skills path. Example:</p>
-      <pre style="margin:.5rem 0 0; padding:10px 14px"><code># .gitignore — allow PR Pilot skill files
+      <p><strong>.gitignore note:</strong> Many <code>.gitignore</code> templates exclude the entire <code class="plat-ij">.idea/</code><code class="plat-vsc">.vscode/</code> folder. To share skill files, make sure to allow the skills path. Example:</p>
+      <div class="plat-ij"><pre style="margin:.5rem 0 0; padding:10px 14px"><code># .gitignore — allow PR Pilot skill files
 .idea/
 !.idea/pr-pilot/
 !.idea/pr-pilot/skills/
-!.idea/pr-pilot/skills/*.md</code></pre>
+!.idea/pr-pilot/skills/*.md</code></pre></div>
+      <div class="plat-vsc"><pre style="margin:.5rem 0 0; padding:10px 14px"><code># .gitignore — allow PR Pilot skill files
+.vscode/
+!.vscode/pr-pilot/
+!.vscode/pr-pilot/skills/
+!.vscode/pr-pilot/skills/*.md</code></pre></div>
     </div>
 
     <!-- ── Default Skills ── -->
@@ -290,7 +326,7 @@ there are two issues requiring attention before merging.
 
     <!-- ── Custom Skills ── -->
     <h2 id="custom-skills">Adding Custom Skill Files</h2>
-    <p>You are not limited to the three default files. Any <code>.md</code> file placed in <code>.idea/pr-pilot/skills/</code> is automatically picked up and included in the AI prompt.</p>
+    <p>You are not limited to the three default files. Any <code>.md</code> file placed in <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code> is automatically picked up and included in the AI prompt.</p>
 
     <p>Example additional skill files you could create:</p>
 
@@ -315,7 +351,7 @@ there are two issues requiring attention before merging.
 
     <ol>
       <li>
-        <strong>Skills block (system message 1)</strong> — all <code>.md</code> files from <code>.idea/pr-pilot/skills/</code> are concatenated and sent as the first system message. This establishes persona, rules, and standards.
+        <strong>Skills block (system message 1)</strong> — all <code>.md</code> files from <code class="plat-ij">.idea/pr-pilot/skills/</code><code class="plat-vsc">.vscode/pr-pilot/skills/</code> are concatenated and sent as the first system message. This establishes persona, rules, and standards.
       </li>
       <li>
         <strong>PR context (system message 2)</strong> — PR ID, title, author, source/target branches, and file count. The AI always knows <em>which</em> PR it is reviewing.
@@ -341,7 +377,7 @@ there are two issues requiring attention before merging.
       <li>Let PR Pilot seed the default files on first run.</li>
       <li>Edit them to match your team's standards.</li>
       <li>Update <code>.gitignore</code> to allow the skills directory (see the note in <a href="#location">File Location</a>).</li>
-      <li>Commit and push: <code>git add .idea/pr-pilot/skills/ &amp;&amp; git commit -m "chore: add PR Pilot skill files"</code></li>
+      <li>Commit and push: <code class="plat-ij">git add .idea/pr-pilot/skills/ &amp;&amp; git commit -m "chore: add PR Pilot skill files"</code><code class="plat-vsc">git add .vscode/pr-pilot/skills/ &amp;&amp; git commit -m "chore: add PR Pilot skill files"</code></li>
       <li>All team members who pull this change will immediately get the updated AI behaviour — no settings changes required.</li>
     </ol>
 
@@ -349,9 +385,15 @@ there are two issues requiring attention before merging.
     <h2 id="editing">Editing Skill Files</h2>
     <p>You can edit skill files in three ways:</p>
     <ul>
-      <li><strong>Settings tab:</strong> <em>Settings → PR Pilot → Skills &amp; Prompts</em> — inline text editors inside the settings window.</li>
-      <li><strong>IDE editor:</strong> Open the <code>.md</code> file directly in IntelliJ — it supports Markdown preview.</li>
-      <li><strong>Any text editor:</strong> The files are plain Markdown; edit them however you prefer.</li>
+      <li class="plat-ij">
+        <strong>Settings window:</strong> Go to <strong>Settings → PR Pilot</strong> → <em>Skills &amp; Prompts</em> tab — inline text editors inside the settings window.
+      </li>
+      <li class="plat-vsc">
+        <strong>Settings panel:</strong> Click the <strong>⚙ gear icon</strong> in the PR Pilot panel → <em>Skills &amp; Prompts</em> tab — inline text editors inside the settings panel.
+      </li>
+      <li class="plat-ij"><strong>Any text editor:</strong> The files are plain Markdown; open them in IntelliJ's built-in editor or any other editor.</li>
+      <li class="plat-vsc"><strong>VS Code editor:</strong> Open the <code>.md</code> file directly in VS Code — it supports Markdown preview.</li>
+      <li><strong>Any external editor:</strong> The files are plain Markdown; edit them however you prefer.</li>
     </ul>
 
     <p>Changes to skill files on disk are reflected immediately the next time you click the AI Summary button — no restart required.</p>
