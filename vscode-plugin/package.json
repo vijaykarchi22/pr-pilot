@@ -2,7 +2,7 @@
   "name": "pr-pilot",
   "displayName": "PR Pilot",
   "description": "Review GitHub and Bitbucket Cloud Pull Requests from within VS Code with AI-powered code review",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "publisher": "thedeveloperbhai",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,7 +22,7 @@
     "type": "git",
     "url": "https://github.com/thedeveloperbhai/pr-pilot"
   },
-  "homepage": "https://github.com/thedeveloperbhai/pr-pilot",
+  "homepage": "https://thedeveloperbhai.github.io/pr-pilot",
   "bugs": {
     "url": "https://github.com/thedeveloperbhai/pr-pilot/issues"
   },
