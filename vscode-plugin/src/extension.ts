@@ -97,7 +97,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const rawDiff = await service.getPullRequestDiff(repoInfo.owner, repoInfo.repoSlug, item.pr.id);
             diffProvider.clearPr(item.pr.id);
             prFilesProvider.loadDiff(item.pr, rawDiff, repoInfo);
-            await filesView.reveal(prFilesProvider.getEntries()[0] as unknown as vscode.TreeItem, { focus: false });
+            const firstEntry = prFilesProvider.getEntries()[0];
+            if (firstEntry) {
+              await filesView.reveal(new DiffFileItem(firstEntry, item.pr, repoInfo), { focus: false });
+            }
           } catch (err: unknown) {
             vscode.window.showErrorMessage(`Failed to load files: ${errorMessage(err)}`);
           }

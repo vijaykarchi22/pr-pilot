@@ -234,6 +234,12 @@
           "default": "llama3",
           "description": "Ollama model name"
         },
+        "prPilot.aiReadTimeoutSeconds": {
+          "type": "number",
+          "default": 900,
+          "minimum": 30,
+          "description": "Maximum time (seconds) to wait for an AI response. Increase this for slow or large local models (default: 900 = 15 minutes)."
+        },
         "prPilot.jiraBaseUrl": {
           "type": "string",
           "default": "",

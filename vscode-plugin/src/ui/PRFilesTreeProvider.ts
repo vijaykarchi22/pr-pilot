@@ -45,6 +45,11 @@ export class PRFilesTreeProvider implements vscode.TreeDataProvider<vscode.TreeI
     return element;
   }
 
+  getParent(_element: vscode.TreeItem): vscode.ProviderResult<vscode.TreeItem> {
+    // All items are top-level — no parent.
+    return null;
+  }
+
   getChildren(element?: vscode.TreeItem): vscode.ProviderResult<vscode.TreeItem[]> {
     if (element) return [];
 

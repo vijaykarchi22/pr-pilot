@@ -105,6 +105,20 @@ export class Settings {
     await this.config.update('ollamaModel', value, vscode.ConfigurationTarget.Global);
   }
 
+  /** AI response read timeout in milliseconds (configurable via prPilot.aiReadTimeoutSeconds). */
+  get aiReadTimeoutMs(): number {
+    const secs = this.config.get<number>('aiReadTimeoutSeconds', 900);
+    return Math.max(secs, 30) * 1000;
+  }
+
+  get aiReadTimeoutSeconds(): number {
+    return this.config.get<number>('aiReadTimeoutSeconds', 900);
+  }
+
+  async setAiReadTimeoutSeconds(value: number): Promise<void> {
+    await this.config.update('aiReadTimeoutSeconds', Math.max(value, 30), vscode.ConfigurationTarget.Global);
+  }
+
   // ── JIRA ──────────────────────────────────────────────────────────────────
 
   get jiraBaseUrl(): string {
@@ -222,6 +236,7 @@ export class Settings {
       openAiCompatModel: this.openAiCompatModel,
       ollamaBaseUrl: this.ollamaBaseUrl,
       ollamaModel: this.ollamaModel,
+      aiReadTimeoutSeconds: this.aiReadTimeoutSeconds,
       jiraBaseUrl: this.jiraBaseUrl,
       jiraEmail: this.jiraEmail,
       jiraIssueKeyPattern: this.jiraIssueKeyPattern,
@@ -245,6 +260,7 @@ export class Settings {
     if (state.openAiCompatModel !== undefined) saves.push(this.setOpenAiCompatModel(state.openAiCompatModel as string));
     if (state.ollamaBaseUrl !== undefined) saves.push(this.setOllamaBaseUrl(state.ollamaBaseUrl as string));
     if (state.ollamaModel !== undefined) saves.push(this.setOllamaModel(state.ollamaModel as string));
+    if (state.aiReadTimeoutSeconds !== undefined) saves.push(this.setAiReadTimeoutSeconds(Number(state.aiReadTimeoutSeconds)));
     if (state.jiraBaseUrl !== undefined) saves.push(this.setJiraBaseUrl(state.jiraBaseUrl as string));
     if (state.jiraEmail !== undefined) saves.push(this.setJiraEmail(state.jiraEmail as string));
     if (state.jiraIssueKeyPattern !== undefined) saves.push(this.setJiraIssueKeyPattern(state.jiraIssueKeyPattern as string));

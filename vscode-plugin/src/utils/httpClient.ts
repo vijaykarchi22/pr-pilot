@@ -87,9 +87,14 @@ function httpRequestOnce(
       res.on('error', reject);
     });
 
-    req.on('error', reject);
+    let timedOut = false;
+    req.on('error', (err) => {
+      if (timedOut) { return; } // already rejected with the timeout message
+      reject(err);
+    });
 
     const timer = setTimeout(() => {
+      timedOut = true;
       req.destroy();
       reject(new Error(`Request timeout after ${timeout}ms: ${urlStr}`));
     }, timeout);

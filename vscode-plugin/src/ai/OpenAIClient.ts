@@ -32,9 +32,8 @@ interface ChatCompletionResponse {
   choices: Array<{ message: { content: string } }>;
 }
 
-// Conservative timeouts for slow/large LLM responses
+// Conservative connect timeout — kept fixed; read timeout is user-configurable.
 const CONNECT_TIMEOUT_MS = 60_000;
-const READ_TIMEOUT_MS = 900_000;   // 15 minutes
 
 /**
  * Multi-provider LLM client.
@@ -45,14 +44,27 @@ export class OpenAIClient {
 
   async generateSummary(userPrompt: string, prContext?: PrContext): Promise<string> {
     const settings = Settings.instance;
+    const start = Date.now();
+    console.log(`[OpenAIClient] generateSummary start | provider=${settings.aiProvider}`);
 
-    switch (settings.aiProvider) {
-      case 'OPENAI':
-        return this.callOpenAi(userPrompt, prContext);
-      case 'OPENAI_COMPATIBLE':
-        return this.callOpenAiCompatible(userPrompt, prContext);
-      case 'OLLAMA':
-        return this.callOllama(userPrompt, prContext);
+    try {
+      let result: string;
+      switch (settings.aiProvider) {
+        case 'OPENAI':
+          result = await this.callOpenAi(userPrompt, prContext);
+          break;
+        case 'OPENAI_COMPATIBLE':
+          result = await this.callOpenAiCompatible(userPrompt, prContext);
+          break;
+        case 'OLLAMA':
+          result = await this.callOllama(userPrompt, prContext);
+          break;
+      }
+      console.log(`[OpenAIClient] generateSummary success | elapsed=${Date.now() - start}ms`);
+      return result;
+    } catch (err) {
+      console.error(`[OpenAIClient] generateSummary failed | elapsed=${Date.now() - start}ms | error=${err instanceof Error ? err.message : String(err)}`);
+      throw err;
     }
   }
 
@@ -111,6 +123,7 @@ export class OpenAIClient {
     model: string,
     messages: ChatMessage[]
   ): Promise<string> {
+    const readTimeoutMs = Settings.instance.aiReadTimeoutMs;
     const body = JSON.stringify({
       model,
       messages,
@@ -125,11 +138,22 @@ export class OpenAIClient {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
+    console.log(`[OpenAIClient] POST ${url} | model=${model} | readTimeout=${readTimeoutMs}ms`);
+
     let responseText: string;
     try {
-      responseText = await httpPost(url, body, headers, READ_TIMEOUT_MS);
+      responseText = await httpPost(url, body, headers, readTimeoutMs);
+      console.log(`[OpenAIClient] Raw response (first 500 chars): ${responseText.slice(0, 500)}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[OpenAIClient] HTTP error: ${msg}`);
+      if (msg.includes('socket hang up') || msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('timeout')) {
+        const secs = Math.round(readTimeoutMs / 1000);
+        throw new Error(
+          `Connection to AI model timed out or was reset after ${secs}s.\n` +
+          `If your model is slow to respond, increase the timeout in Settings → PR Pilot → AI Read Timeout Seconds.`
+        );
+      }
       if (msg.includes('HTTP 401')) {
         throw new Error(`${msg}\nCheck your API key in Settings → PR Pilot → AI Provider.`);
       }
@@ -148,8 +172,13 @@ export class OpenAIClient {
       throw err instanceof Error ? err : new Error(msg);
     }
 
-    const parsed: ChatCompletionResponse = JSON.parse(responseText);
+    const parsed: ChatCompletionResponse | null = JSON.parse(responseText);
+    console.log(`[OpenAIClient] Parsed response:`, JSON.stringify(parsed, null, 2).slice(0, 800));
+    if (!parsed) {
+      throw new Error(`Null response from AI.\nFull response:\n${responseText.slice(0, 500)}`);
+    }
     const content = parsed.choices?.[0]?.message?.content;
+    console.log(`[OpenAIClient] Extracted content (first 200 chars): ${content?.slice(0, 200)}`);
     if (!content) {
       throw new Error(`Empty response from AI (choices list was empty).\nFull response:\n${responseText.slice(0, 500)}`);
     }

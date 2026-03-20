@@ -327,6 +327,12 @@ export class SettingsPanel {
             <div class="hint">e.g. llama3, codellama, mistral, deepseek-coder</div>
           </div>
         </div>
+
+        <div class="field" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--vscode-panel-border)">
+          <label>Response Timeout (seconds)</label>
+          <input type="number" id="aiReadTimeoutSeconds" value="${esc(state.aiReadTimeoutSeconds ?? 900)}" min="30" step="30" style="width:120px">
+          <div class="hint">How long to wait for an AI response before giving up. Increase for slow or large local models (default: 900 = 15 min).</div>
+        </div>
       </div>
 
       <!-- JIRA -->
@@ -463,6 +469,7 @@ export class SettingsPanel {
         openAiCompatModel: document.getElementById('openAiCompatModel')?.value || 'gpt-4o',
         ollamaBaseUrl: document.getElementById('ollamaBaseUrl')?.value || '',
         ollamaModel: document.getElementById('ollamaModel')?.value || 'llama3',
+        aiReadTimeoutSeconds: parseInt(document.getElementById('aiReadTimeoutSeconds')?.value || '900', 10),
         githubPat: document.getElementById('githubPat')?.value || '',
         openaiKey,
         jiraBaseUrl: document.getElementById('jiraBaseUrl')?.value || '',
