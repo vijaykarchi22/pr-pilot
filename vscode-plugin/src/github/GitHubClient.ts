@@ -198,12 +198,20 @@ export class GitHubClient {
   ): Promise<void> {
     const comments = inlineComments
       .filter((ic) => ic.file && ic.line > 0)
-      .map((ic) => ({
-        path: ic.file,
-        line: ic.line,
-        side: 'RIGHT',
-        body: ic.comment,
-      }));
+      .map((ic) => {
+        let body: string;
+        if (ic.issue || ic.cause || ic.fix) {
+          const parts: string[] = [];
+          if (ic.issue) { parts.push(`**Issue:** ${ic.issue}`); }
+          if (ic.cause) { parts.push(`**Cause:** ${ic.cause}`); }
+          if (ic.fix)   { parts.push(`**Fix:** ${ic.fix}`); }
+          body = parts.join('\n\n');
+        } else {
+          body = ic.comment ?? '';
+        }
+        return { path: ic.file, line: ic.line, side: 'RIGHT', body };
+      })
+      .filter((c) => c.body.trim());
 
     const payload: Record<string, unknown> = { event, body };
     if (comments.length > 0) payload.comments = comments;

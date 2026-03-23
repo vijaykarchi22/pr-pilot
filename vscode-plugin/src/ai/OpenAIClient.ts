@@ -10,21 +10,40 @@ export interface PrContext {
   sourceBranch: string;
   destinationBranch: string;
   fileCount: number;
+  /**
+   * Content injected into the `{prContext}` placeholder in system_prompt.md.
+   * Contains PR metadata, impacted file list, git diff, and referenced file content.
+   */
+  diffContext?: string;
+  /**
+   * When set, triggers the lean per-file review message structure:
+   *   1. system: prContext block
+   *   2. system: these type-specific rules
+   *   3. system: hardcoded inline-comments schema
+   *   4. user:   review instruction
+   * Loaded from `.vscode/pr-pilot/skills/<type>_rules.md`.
+   */
+  typeRulesContent?: string;
 }
 
-function prContextToSystemMessage(ctx: PrContext): string {
-  return [
-    '## Pull Request Context',
+function buildPrContextBlock(ctx: PrContext): string {
+  const lines = [
+    '## Pull Request Metadata',
     `- **PR ID:** #${ctx.id}`,
     `- **Title:** ${ctx.title}`,
     `- **Author:** ${ctx.author}`,
     `- **Source branch:** \`${ctx.sourceBranch}\``,
     `- **Target branch:** \`${ctx.destinationBranch}\``,
     `- **Files changed:** ${ctx.fileCount}`,
-  ].join('\n');
+  ];
+  if (ctx.diffContext) {
+    lines.push('');
+    lines.push(ctx.diffContext);
+  }
+  return lines.join('\n');
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
@@ -35,6 +54,40 @@ interface StreamDelta {
 
 // Conservative connect timeout — kept fixed; read timeout is user-configurable.
 const CONNECT_TIMEOUT_MS = 60_000;
+
+/**
+ * Hardcoded output-format instructions for per-file reviews.
+ * Replaces the inline-comments section from system_prompt.md so each
+ * per-file call has a minimal, focused set of system messages.
+ */
+const INLINE_COMMENTS_SCHEMA = `## Required Output Format
+
+After your analysis summary, append inline comments using EXACTLY this block:
+
+<!-- INLINE_COMMENTS_START -->
+[
+  {
+    "file": "relative/path/to/file.ext",
+    "line": 42,
+    "severity": "critical",
+    "issue": "What is wrong (one sentence)",
+    "cause": "Why it is a problem",
+    "fix": "Concrete code-level recommendation",
+    "comment": ""
+  }
+]
+<!-- INLINE_COMMENTS_END -->
+
+Severity levels:
+- "critical" — bugs, security vulnerabilities, data loss risk
+- "warning"  — code quality, maintainability, performance
+- "suggestion" — optional improvements, style, readability
+
+Constraints:
+- Only flag issues in the changed lines shown in the git diff
+- Emit between 0 and 20 inline comments
+- Every entry MUST include: file, line, severity, issue, cause, fix
+- The JSON array MUST appear between the HTML comment delimiters`;
 
 /**
  * Parses streamed text for <think>…</think> tags, which reasoning models
@@ -85,10 +138,96 @@ function safeEmitLength(text: string, tag: string): number {
 export class OpenAIClient {
   constructor(private readonly skillsService: SkillsService) {}
 
+  /**
+   * Classifies a source file into one of the standard types so the appropriate
+   * `<type>_rules.md` skill file can be loaded for the review.
+   *
+   * Uses a fast regex heuristic on the file path first; only calls the LLM when
+   * the heuristic cannot determine the type.
+   *
+   * @returns lowercase type string, e.g. `controller`, `service`, `component`, etc.
+   *          The returned string is used as the stem of the `<type>_rules.md` skill file.
+   *
+   * Naming convention for skill files:
+   *   Angular    → service, component, module, guard, interceptor, resolver, pipe, directive, state
+   *   Spring Boot / Java / Kotlin → java_service, controller, repository, model
+   */
+  async classifyFile(filePath: string, contentSnippet: string): Promise<string> {
+    const name = filePath.toLowerCase();
+    const isJvm = /\.(java|kt|groovy)$/.test(name);
+
+    // ── Angular file-suffix conventions (checked first — very specific) ────
+    if (!isJvm) {
+      if (/\.component\.(ts|html|scss|css|less)$/.test(name)) { return 'component'; }
+      if (/\.module\.ts$/.test(name))                          { return 'module'; }
+      if (/\.guard\.ts$/.test(name))                           { return 'guard'; }
+      if (/\.interceptor\.ts$/.test(name))                     { return 'interceptor'; }
+      if (/\.resolver\.ts$/.test(name))                        { return 'resolver'; }
+      if (/\.pipe\.ts$/.test(name))                            { return 'pipe'; }
+      if (/\.directive\.ts$/.test(name))                       { return 'directive'; }
+      if (/\.(effects|reducer|action|selector|store)\.ts$/.test(name)) { return 'state'; }
+      if (/\.spec\.ts$/.test(name))                            { return 'test'; }
+      if (/\.service\.ts$/.test(name))                         { return 'service'; }
+    }
+
+    // ── Spring Boot / JVM-specific heuristics ─────────────────────────────
+    // These map to dedicated java_* skill files to avoid overwriting Angular rules.
+    if (isJvm) {
+      if (/test|spec|mock|stub|fixture/i.test(name))                        { return 'test'; }
+      if (/controller|resource|handler|endpoint/i.test(name))               { return 'controller'; }
+      if (/serviceimpl|service/i.test(name))                                { return 'java_service'; }
+      if (/repositor|dao|mapper|persistence/i.test(name))                   { return 'repository'; }
+      if (/entity|dto|request|response|domain|model/i.test(name))           { return 'model'; }
+      if (/filter|interceptor|middleware|aspect/i.test(name))               { return 'middleware'; }
+      if (/config|configuration|properties|settings/i.test(name))           { return 'config'; }
+      if (/util|helper|common|shared|tool/i.test(name))                     { return 'util'; }
+    }
+
+    // ── Generic heuristics for any other language ─────────────────────────
+    const HEURISTICS: Array<[RegExp, string]> = [
+      [/test|spec|mock|stub|fixture/i,                          'test'],
+      [/controller|resource|handler|endpoint|router|route/i,    'controller'],
+      [/service|usecase|use_case|business/i,                    'service'],
+      [/repositor|dao|mapper|persistence/i,                     'repository'],
+      [/middleware|interceptor|filter|guard/i,                   'middleware'],
+      [/model|entity|schema|dto|domain/i,                        'model'],
+      [/config|configuration|settings|props|properties/i,        'config'],
+      [/util|helper|common|shared|tool/i,                        'util'],
+    ];
+    for (const [pattern, type] of HEURISTICS) {
+      if (pattern.test(name)) { return type; }
+    }
+
+    // ── LLM fallback ──────────────────────────────────────────────────────
+    const ALLOWED =
+      'controller, java_service, service, component, module, guard, interceptor, resolver, pipe, ' +
+      'directive, state, repository, middleware, model, config, util, test, other';
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'You are a source-file classifier. Reply with exactly one lowercase word (underscores allowed) from the allowed list.' },
+      {
+        role: 'user',
+        content:
+          `Classify this file into one category.\n` +
+          `Allowed values: ${ALLOWED}\n\n` +
+          `File path: ${filePath}\n\nContent (first 800 chars):\n\`\`\`\n${contentSnippet.slice(0, 800)}\n\`\`\``,
+      },
+    ];
+    try {
+      const raw = await this.callOnce(messages);
+      const escaped = ALLOWED.split(', ').map((v) => v.replace('_', '_')).join('|');
+      const match = raw.trim().toLowerCase().match(new RegExp(`\\b(${escaped})\\b`));
+      return match ? match[1] : 'other';
+    } catch (err) {
+      Logger.warn(`[AI] classifyFile failed: ${err instanceof Error ? err.message : String(err)}`);
+      return 'other';
+    }
+  }
+
   async generateSummary(
     userPrompt: string,
     prContext?: PrContext,
-    onChunk?: (delta: string, isThinking: boolean) => void
+    onChunk?: (delta: string, isThinking: boolean) => void,
+    onPromptBuilt?: (messages: ChatMessage[]) => void
   ): Promise<string> {
     const settings = Settings.instance;
     const start = Date.now();
@@ -98,13 +237,13 @@ export class OpenAIClient {
       let result: string;
       switch (settings.aiProvider) {
         case 'OPENAI':
-          result = await this.callOpenAi(userPrompt, prContext, onChunk);
+          result = await this.callOpenAi(userPrompt, prContext, onChunk, onPromptBuilt);
           break;
         case 'OPENAI_COMPATIBLE':
-          result = await this.callOpenAiCompatible(userPrompt, prContext, onChunk);
+          result = await this.callOpenAiCompatible(userPrompt, prContext, onChunk, onPromptBuilt);
           break;
         case 'OLLAMA':
-          result = await this.callOllama(userPrompt, prContext, onChunk);
+          result = await this.callOllama(userPrompt, prContext, onChunk, onPromptBuilt);
           break;
       }
       Logger.info(`[AI] Review complete | elapsed=${Date.now() - start}ms`);
@@ -115,22 +254,24 @@ export class OpenAIClient {
     }
   }
 
-  private async callOpenAi(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void): Promise<string> {
+  private async callOpenAi(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void, onPromptBuilt?: (messages: ChatMessage[]) => void): Promise<string> {
     const settings = Settings.instance;
     const apiKey = await settings.getOpenAiKey();
     if (!apiKey) {
       throw new Error('OpenAI API key is not configured. Open PR Pilot Settings → AI Provider.');
     }
+    const messages = await this.buildMessages(userPrompt, prContext);
+    onPromptBuilt?.(messages);
     return this.postChat(
       'https://api.openai.com/v1/chat/completions',
       apiKey,
       settings.openAiModel || 'gpt-4o',
-      await this.buildMessages(userPrompt, prContext),
+      messages,
       onChunk
     );
   }
 
-  private async callOpenAiCompatible(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void): Promise<string> {
+  private async callOpenAiCompatible(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void, onPromptBuilt?: (messages: ChatMessage[]) => void): Promise<string> {
     const settings = Settings.instance;
     const apiKey = await settings.getOpenAiKey();
     let baseUrl = settings.openAiCompatBaseUrl.replace(/\/$/, '');
@@ -143,26 +284,30 @@ export class OpenAIClient {
         ? `${baseUrl}/chat/completions`
         : `${baseUrl}/v1/chat/completions`;
 
+    const messages = await this.buildMessages(userPrompt, prContext);
+    onPromptBuilt?.(messages);
     return this.postChat(
       chatUrl,
       apiKey,
       settings.openAiCompatModel || 'gpt-4o',
-      await this.buildMessages(userPrompt, prContext),
+      messages,
       onChunk
     );
   }
 
-  private async callOllama(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void): Promise<string> {
+  private async callOllama(userPrompt: string, prContext?: PrContext, onChunk?: (d: string, isThinking: boolean) => void, onPromptBuilt?: (messages: ChatMessage[]) => void): Promise<string> {
     const settings = Settings.instance;
     const baseUrl = settings.ollamaBaseUrl.replace(/\/$/, '');
     if (!baseUrl) {
       throw new Error('Ollama Base URL is not configured. Open PR Pilot Settings → AI Provider.');
     }
+    const messages = await this.buildMessages(userPrompt, prContext);
+    onPromptBuilt?.(messages);
     return this.postChat(
       `${baseUrl}/v1/chat/completions`,
       '',  // Ollama requires no API key
       settings.ollamaModel || 'llama3',
-      await this.buildMessages(userPrompt, prContext),
+      messages,
       onChunk
     );
   }
@@ -257,34 +402,80 @@ export class OpenAIClient {
   }
 
   /**
+   * Makes a non-streaming LLM call and returns the raw accumulated response.
+   * Used for lightweight tasks like file classification.
+   */
+  private async callOnce(messages: ChatMessage[]): Promise<string> {
+    const settings = Settings.instance;
+    switch (settings.aiProvider) {
+      case 'OPENAI': {
+        const apiKey = await settings.getOpenAiKey();
+        if (!apiKey) { throw new Error('OpenAI API key not configured.'); }
+        return this.postChat('https://api.openai.com/v1/chat/completions', apiKey, settings.openAiModel || 'gpt-4o', messages);
+      }
+      case 'OPENAI_COMPATIBLE': {
+        const apiKey = await settings.getOpenAiKey();
+        const baseUrl = settings.openAiCompatBaseUrl.replace(/\/$/, '');
+        if (!baseUrl) { throw new Error('OpenAI-compatible Base URL not configured.'); }
+        const chatUrl = baseUrl.endsWith('/v1/chat/completions') ? baseUrl
+          : baseUrl.endsWith('/v1') ? `${baseUrl}/chat/completions`
+          : `${baseUrl}/v1/chat/completions`;
+        return this.postChat(chatUrl, apiKey || '', settings.openAiCompatModel || 'gpt-4o', messages);
+      }
+      case 'OLLAMA': {
+        const baseUrl = settings.ollamaBaseUrl.replace(/\/$/, '');
+        if (!baseUrl) { throw new Error('Ollama Base URL not configured.'); }
+        return this.postChat(`${baseUrl}/v1/chat/completions`, '', settings.ollamaModel || 'llama3', messages);
+      }
+      default:
+        throw new Error('Unknown AI provider.');
+    }
+  }
+
+  /**
    * Builds the message array for the chat completion.
-   * Message order:
-   *   1. system_prompt.md  — role, tone, output format
-   *   2. review_rules.md + coding_standards.md
-   *   3. PR context (id, title, author, branches)
-   *   4. User message (diff + code analysis)
+   *
+   * **Per-file review** (when `prContext.typeRulesContent` is set):
+   *   1. system: PR context block (metadata + diff + file content)
+   *   2. system: type-specific rules loaded from `<type>_rules.md`
+   *   3. system: hardcoded inline-comments output schema
+   *   4. user:   review instruction
+   *
+   * **Consolidation / legacy calls** (`typeRulesContent` absent):
+   *   1. system: system_prompt.md with {prContext} substituted
+   *   2. system: review_rules.md + coding_standards.md
+   *   3. user:   prompt
    */
   private async buildMessages(userPrompt: string, prContext?: PrContext): Promise<ChatMessage[]> {
+    // ── Per-file review mode (lean, focused structure) ───────────────────────
+    if (prContext?.typeRulesContent !== undefined) {
+      const contextBlock = buildPrContextBlock(prContext);
+      return [
+        { role: 'system', content: contextBlock },
+        { role: 'system', content: prContext.typeRulesContent },
+        { role: 'system', content: INLINE_COMMENTS_SCHEMA },
+        { role: 'user',   content: userPrompt },
+      ];
+    }
+
+    // ── Legacy / consolidation mode ─────────────────────────────────────────
     const messages: ChatMessage[] = [];
 
-    // 1. System prompt
-    const systemPrompt = this.skillsService.readSkill('system_prompt').trim();
-    if (systemPrompt) {
+    // 1. system_prompt.md — with {prContext} substitution
+    const rawSystemPrompt = this.skillsService.readSkill('system_prompt').trim();
+    if (rawSystemPrompt) {
+      const contextBlock = prContext ? buildPrContextBlock(prContext) : '';
+      const systemPrompt = rawSystemPrompt.replace('{prContext}', contextBlock);
       messages.push({ role: 'system', content: systemPrompt });
     }
 
-    // 2. Review rules + coding standards combined
+    // 2. review_rules.md + coding_standards.md
     const rulesBlock = this.buildSkillsSystemBlock();
     if (rulesBlock) {
       messages.push({ role: 'system', content: rulesBlock });
     }
 
-    // 3. PR context
-    if (prContext) {
-      messages.push({ role: 'system', content: prContextToSystemMessage(prContext) });
-    }
-
-    // 4. User prompt (diff + analysis)
+    // 3. user prompt
     messages.push({ role: 'user', content: userPrompt });
 
     return messages;

@@ -84,6 +84,16 @@ Edit this file to customise the review focus for your team.
 
 ---
 
+## Visibility & Encapsulation
+- 🔴 **Flag any class, interface, or enum that is missing an explicit visibility modifier** — in Java, omitting `public`/`private`/`protected` makes the type package-private, which is rarely intentional and breaks expected API contracts
+- 🔴 Flag any `public` field that should be encapsulated behind a getter/setter
+- 🟡 Flag methods with wider visibility than required (e.g. `public` when only used internally)
+- 🟡 Flag Kotlin/Java classes that are `open` or non-`final` without a clear documented reason
+- Verify that internal implementation classes are not unnecessarily exposed in public APIs
+- Check that utility/helper classes are not accidentally left with package-private visibility
+
+---
+
 # Additional Review Dimensions
 
 ## API Design

@@ -147,7 +147,10 @@ Always include:
 2. **File Analysis**
    - Group feedback by file
    - List issues with severity labels
-   - Provide actionable improvement suggestions
+   - For each issue always provide three sub-points:
+     - **Issue:** What is wrong
+     - **Cause:** Why it is a problem
+     - **Fix:** A concrete suggestion for how to resolve it
    - Reference the relevant lines or code patterns
 
 3. **Summary**
@@ -186,6 +189,12 @@ Avoid:
 
 ---
 
+# Pull Request Context
+
+{prContext}
+
+---
+
 # MANDATORY: Inline Comments Block
 
 You MUST end EVERY response with the following block, no exceptions.  
@@ -201,7 +210,10 @@ Output it as raw text between the two HTML comment tags.
     "file": "relative/path/to/File.kt",
     "line": 42,
     "severity": "warning",
-    "comment": "Explain the specific issue on this line and how to fix it."
+    "issue": "One-line description of what is wrong.",
+    "cause": "Why this is a problem — impact, risk, or rule violated.",
+    "fix": "Concrete suggestion for how to resolve it, with an example if helpful.",
+    "comment": "issue + cause + fix combined as a single readable string (for backwards compatibility)."
   }
 ]
 <!-- INLINE_COMMENTS_END -->
@@ -215,7 +227,10 @@ Rules for the inline comments JSON:
   - `"file"` (relative file path)
   - `"line"` (integer line number)
   - `"severity"` ("critical" | "warning" | "suggestion")
-  - `"comment"` (clear actionable explanation)
+  - `"issue"` (short description of what is wrong)
+  - `"cause"` (why it is a problem)
+  - `"fix"` (concrete actionable suggestion)
+  - `"comment"` (issue + cause + fix combined as a readable summary)
 
 Additional requirements:
 

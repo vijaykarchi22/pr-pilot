@@ -51,6 +51,11 @@ export class AiReviewPanel {
     return instance;
   }
 
+  /** Updates the status label shown in the panel while per-file reviews are in progress. */
+  updateStatus(msg: string): void {
+    this._panel.webview.postMessage({ command: 'streamStatus', message: msg });
+  }
+
   /** Appends a streamed delta to the live summary view. */
   appendChunk(delta: string, isThinking: boolean): void {
     this._panel.webview.postMessage({ command: 'streamChunk', delta, isThinking });
@@ -66,6 +71,11 @@ export class AiReviewPanel {
       commentsJson: JSON.stringify(result.inlineComments),
       commentCount: result.inlineComments.length,
     });
+  }
+
+  /** Sends a captured LLM prompt (messages array) to the Prompts tab in the webview. */
+  addPrompt(label: string, messages: Array<{ role: string; content: string }>): void {
+    this._panel.webview.postMessage({ command: 'addPrompt', label, messages });
   }
 
   static show(
@@ -469,6 +479,23 @@ export class AiReviewPanel {
       line-height: 1.5;
       color: var(--vscode-foreground);
     }
+    .comment-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 13px;
+      line-height: 1.5;
+      align-items: flex-start;
+    }
+    .comment-label {
+      flex-shrink: 0;
+      width: 44px;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      padding-top: 2px;
+      color: var(--vscode-descriptionForeground);
+    }
     .comment-select {
       margin-left: auto;
     }
@@ -547,6 +574,49 @@ export class AiReviewPanel {
       color: var(--vscode-foreground);
       font-size: 16px;
     }
+
+    /* Prompt viewer */
+    .prompt-entry {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 6px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .prompt-entry > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      user-select: none;
+    }
+    .prompt-entry > summary::-webkit-details-marker { display: none; }
+    .prompt-entry > summary::before { content: '▶ '; font-size: 10px; }
+    .prompt-entry[open] > summary::before { content: '▼ '; }
+    .prompt-msg {
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .prompt-role {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 4px 12px;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-titleBar-activeBackground);
+    }
+    .prompt-content {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 0.85em;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 10px 12px;
+      margin: 0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
@@ -563,6 +633,7 @@ export class AiReviewPanel {
   <div class="tabs">
     <div class="tab active" onclick="showTab('summary')">📋 Summary</div>
     <div class="tab" onclick="showTab('comments')">💬 Inline Comments (${reviewResult.inlineComments.length})</div>
+    <div class="tab" onclick="showTab('prompts')">📝 Prompts (<span id="prompt-count">0</span>)</div>
   </div>
 
   <div class="tab-content">
@@ -577,6 +648,9 @@ export class AiReviewPanel {
     </div>
     <div id="tab-comments" class="tab-panel">
       <div id="comments-container"></div>
+    </div>
+    <div id="tab-prompts" class="tab-panel">
+      <div id="prompts-container"><div class="no-comments">No prompts captured yet. Run a review to see the LLM messages sent to the AI.</div></div>
     </div>
   </div>
 
@@ -600,10 +674,19 @@ export class AiReviewPanel {
     const vscode = acquireVsCodeApi();
     let allComments = ${commentsJson};
     let streamBuffer = '';
+    let promptLog = [];
 
     // ── Streaming support ──────────────────────────────────────────────────
     window.addEventListener('message', (event) => {
       const msg = event.data;
+
+      if (msg.command === 'streamStatus') {
+        // Update the status label during per-file review phase
+        const summaryEl = document.querySelector('#tab-summary .summary');
+        if (summaryEl && !summaryEl.querySelector('.stream-pre')) {
+          summaryEl.innerHTML = '<span class="stream-thinking">⏳ ' + escapeHtml(msg.message) + '</span>';
+        }
+      }
 
       if (msg.command === 'streamStart') {
         streamBuffer = '';
@@ -618,6 +701,16 @@ export class AiReviewPanel {
         if (thinkingSection) { thinkingSection.style.display = 'none'; }
         if (thinkingContent) { thinkingContent.textContent = ''; }
         if (thinkingDetails) { thinkingDetails.setAttribute('open', ''); }
+        // Clear stale inline comments
+        allComments = [];
+        renderComments();
+        const tab = document.querySelectorAll('.tab')[1];
+        if (tab) { tab.textContent = '💬 Inline Comments (0)'; }
+        // Clear stale prompts
+        promptLog = [];
+        renderPrompts();
+        const promptCountEl = document.getElementById('prompt-count');
+        if (promptCountEl) { promptCountEl.textContent = '0'; }
         // disable action buttons while streaming
         document.querySelectorAll('.action-bar button').forEach(b => b.disabled = true);
         document.getElementById('loadingOverlay').classList.remove('active');
@@ -677,14 +770,41 @@ export class AiReviewPanel {
           document.getElementById('spinnerText').textContent = msg.message;
         }
       }
+
+      if (msg.command === 'addPrompt') {
+        promptLog.push({ label: msg.label, messages: msg.messages });
+        renderPrompts();
+        const promptCountEl = document.getElementById('prompt-count');
+        if (promptCountEl) { promptCountEl.textContent = String(promptLog.length); }
+      }
     });
 
     function showTab(name) {
       document.querySelectorAll('.tab').forEach((t, i) => {
-        t.classList.toggle('active', ['summary', 'comments'][i] === name);
+        t.classList.toggle('active', ['summary', 'comments', 'prompts'][i] === name);
       });
       document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
       document.getElementById('tab-' + name).classList.add('active');
+    }
+
+    function renderPrompts() {
+      const container = document.getElementById('prompts-container');
+      if (!container) { return; }
+      if (promptLog.length === 0) {
+        container.innerHTML = '<div class="no-comments">No prompts captured yet. Run a review to see the LLM messages sent to the AI.</div>';
+        return;
+      }
+      container.innerHTML = promptLog.map((entry) => \`
+        <details class="prompt-entry" open>
+          <summary>\${escapeHtml(entry.label)}</summary>
+          \${entry.messages.map(m => \`
+            <div class="prompt-msg">
+              <div class="prompt-role">\${escapeHtml(m.role)}</div>
+              <pre class="prompt-content">\${escapeHtml(m.content)}</pre>
+            </div>
+          \`).join('')}
+        </details>
+      \`).join('');
     }
 
     function renderComments() {
@@ -702,7 +822,9 @@ export class AiReviewPanel {
               <input type="checkbox" class="comment-checkbox" data-index="\${i}" checked>
             </label>
           </div>
-          <div class="comment-text">\${escapeHtml(c.comment || '')}</div>
+          \${c.issue ? \`<div class="comment-row"><span class="comment-label">Issue</span><span class="comment-text">\${escapeHtml(c.issue)}</span></div>\` : ''}
+          \${c.cause ? \`<div class="comment-row"><span class="comment-label">Cause</span><span class="comment-text">\${escapeHtml(c.cause)}</span></div>\` : ''}
+          \${c.fix   ? \`<div class="comment-row"><span class="comment-label">Fix</span><span class="comment-text">\${escapeHtml(c.fix)}</span></div>\` : \`<div class="comment-text">\${escapeHtml(c.comment || '')}</div>\`}
         </div>
       \`).join('');
     }

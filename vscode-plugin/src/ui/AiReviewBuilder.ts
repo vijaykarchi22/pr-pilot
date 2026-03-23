@@ -5,6 +5,7 @@ import { Logger } from '../utils/Logger';
 import { PullRequest } from '../models/PullRequest';
 import { PullRequestService } from '../services/PullRequestService';
 import { OpenAIClient, PrContext } from '../ai/OpenAIClient';
+import { SkillsService } from '../skills/SkillsService';
 import { buildPatchMap } from './DiffParser';
 import {
   analyze,
@@ -22,7 +23,8 @@ export class AiReviewBuilder {
   constructor(
     private readonly service: PullRequestService,
     private readonly aiClient: OpenAIClient,
-    private readonly workspaceRoot: string
+    private readonly workspaceRoot: string,
+    private readonly skillsService: SkillsService
   ) {}
 
   /**
@@ -73,14 +75,20 @@ export class AiReviewBuilder {
   }
 
   /**
-   * Fetches the diff, resolves imports, and calls the AI to generate a review.
-   * @param onProgress optional callback for status updates
+   * Fetches the diff and reviews each changed file with a separate LLM call to avoid
+   * context overflows on large PRs. Then makes one final consolidation call whose
+   * streamed output feeds the panel in real-time. Returns a synthetic response string
+   * in the standard format that `parseResponse` can consume.
+   *
+   * @param onProgress optional callback for status updates (VS Code notification + panel)
+   * @param onChunk    optional streaming callback used for the final consolidation call
    */
   async buildSummaryText(
     pr: PullRequest,
     info: RepoInfo,
     onProgress?: (msg: string) => void,
-    onChunk?: (delta: string, isThinking: boolean) => void
+    onChunk?: (delta: string, isThinking: boolean) => void,
+    onPromptBuilt?: (label: string, messages: Array<{ role: string; content: string }>) => void
   ): Promise<string> {
     const report = (msg: string) => { if (onProgress) onProgress(msg); };
 
@@ -97,92 +105,162 @@ export class AiReviewBuilder {
 
     const patchMap = buildPatchMap(rawDiff);
 
-    report('Analysing changed files…');
-    const analyses: FileAnalysis[] = changedPaths.map((filePath) => {
-      const content = this.readFile(filePath);
-      const patch = patchMap.get(filePath) ??
-        [...patchMap.entries()].find(([k]) => k.endsWith(filePath) || filePath.endsWith(k))?.[1] ?? '';
-      return analyze(filePath, content, patch, false);
-    });
-
-    // Resolve referenced (imported) files
-    const alreadyIncluded = new Set(changedPaths);
-    const referencedAnalyses: FileAnalysis[] = [];
-
-    for (const analysis of analyses) {
-      const localPaths = resolveLocalImports(
-        analysis.imports,
-        analysis.language,
-        this.workspaceRoot,
-        alreadyIncluded
-      );
-      for (const refPath of localPaths) {
-        alreadyIncluded.add(refPath);
-        const refContent = this.readFile(refPath);
-        if (refContent) {
-          referencedAnalyses.push(analyze(refPath, refContent, '', true));
-        }
-      }
-    }
-
-    report(`Generating AI review for PR #${pr.id} (${analyses.length} changed, ${referencedAnalyses.length} referenced)…`);
-
     const prContext: PrContext = {
       id: pr.id,
       title: pr.title,
       author: pr.author.displayName,
       sourceBranch: pr.source.branch.name,
       destinationBranch: pr.destination.branch.name,
-      fileCount: analyses.length,
+      fileCount: changedPaths.length,
     };
 
-    const prompt = this.buildPrompt(pr, analyses, referencedAnalyses);
-    return this.aiClient.generateSummary(prompt, prContext, onChunk);
+    // ── Per-file reviews ──────────────────────────────────────────────────
+    const allInlineComments: InlineComment[] = [];
+    const perFileSummaries: string[] = [];
+
+    for (let i = 0; i < changedPaths.length; i++) {
+      const filePath = changedPaths[i];
+      report(`Reviewing file ${i + 1}/${changedPaths.length}: ${filePath}…`);
+      Logger.info(`[Review] File ${i + 1}/${changedPaths.length}: ${filePath}`);
+
+      const content = this.readFile(filePath);
+      const patch = patchMap.get(filePath) ??
+        [...patchMap.entries()].find(([k]) => k.endsWith(filePath) || filePath.endsWith(k))?.[1] ?? '';
+      const analysis = analyze(filePath, content, patch, false);
+
+      // Classify the file to load the right per-type rules
+      report(`  → Classifying ${filePath}…`);
+      const fileType = await this.aiClient.classifyFile(filePath, content);
+      Logger.info(`[Review] ${filePath} classified as: ${fileType}`);
+      report(`  → ${filePath} is a ${fileType} — loading ${fileType}_rules…`);
+
+      // Load type-specific rules; fall back to generic review_rules
+      const typeRulesContent =
+        this.skillsService.readSkill(`${fileType}_rules`) ||
+        this.skillsService.readSkill('review_rules');
+
+      // Resolve imports referenced only by this file
+      const alreadyIncluded = new Set([filePath]);
+      const fileRefAnalyses: FileAnalysis[] = [];
+      const localPaths = resolveLocalImports(analysis.imports, analysis.language, this.workspaceRoot, alreadyIncluded);
+      for (const refPath of localPaths) {
+        alreadyIncluded.add(refPath);
+        const refContent = this.readFile(refPath);
+        if (refContent) {
+          fileRefAnalyses.push(analyze(refPath, refContent, '', true));
+        }
+      }
+
+      // Build the per-file prContext — diff + referenced files go into diffContext
+      // so the system prompt {prContext} placeholder carries all the code context.
+      const fileContext: PrContext = {
+        ...prContext,
+        diffContext: this.buildDiffContext(analysis, patch, fileRefAnalyses),
+        typeRulesContent,
+      };
+
+      const userInstruction = `Review the changes to \`${filePath}\` shown in the Pull Request Context above.\nProvide a concise summary of your findings and emit inline comments for any issues found.`;
+      try {
+        const rawText = await this.aiClient.generateSummary(userInstruction, fileContext, undefined, (msgs) => onPromptBuilt?.(filePath, msgs)); // no streaming
+        const parsed = this.parseResponse(rawText);
+        if (parsed.summary.trim()) {
+          perFileSummaries.push(`### ${filePath}\n\n${parsed.summary.trim()}`);
+        }
+        allInlineComments.push(...parsed.inlineComments);
+      } catch (err) {
+        Logger.warn(`[Review] Failed to review ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
+        perFileSummaries.push(`### ${filePath}\n\n_(Review failed — skipped)_`);
+      }
+    }
+
+    // ── Consolidation call (streamed to the panel) ────────────────────────
+    report(`Combining reviews for ${changedPaths.length} file(s)…`);
+    const consolidationPrompt = this.buildConsolidationPrompt(pr, perFileSummaries, changedPaths.length);
+    const finalSummary = await this.aiClient.generateSummary(consolidationPrompt, prContext, onChunk, (msgs) => onPromptBuilt?.('Consolidation', msgs));
+
+    // Return a synthetic response in the format parseResponse expects so that
+    // all per-file inline comments are preserved alongside the consolidated summary.
+    const commentsJson = JSON.stringify(allInlineComments, null, 2);
+    return `${finalSummary}\n<!-- INLINE_COMMENTS_START -->\n${commentsJson}\n<!-- INLINE_COMMENTS_END -->`;
   }
 
-  private buildPrompt(
-    pr: PullRequest,
-    analyses: FileAnalysis[],
+  /**
+   * Builds the `diffContext` string injected into `{prContext}` in the system prompt
+   * for a single file review. Contains the git diff, full file content, and any
+   * referenced (imported) files so the LLM has complete context without needing them
+   * in the user message.
+   */
+  private buildDiffContext(
+    analysis: FileAnalysis,
+    patch: string,
     referencedAnalyses: FileAnalysis[]
   ): string {
     const parts: string[] = [];
 
-    parts.push(`## Directly Changed Files (${analyses.length})`);
+    parts.push(`## Changed File: \`${analysis.path}\``);
     parts.push('');
-    parts.push(`These files were modified in PR #${pr.id}. Review them thoroughly.`);
-    parts.push('');
+    parts.push(formatForPrompt(analysis));
 
-    for (const analysis of analyses) {
-      parts.push(formatForPrompt(analysis));
-      const content = this.readFile(analysis.path);
-      if (content) {
-        parts.push(`\`\`\`${analysis.language}`);
-        parts.push(content.slice(0, 3000));
-        parts.push('```');
-      }
-      parts.push('---');
+    if (patch) {
+      parts.push('### Git Diff');
+      parts.push('```diff');
+      parts.push(patch);
+      parts.push('```');
+      parts.push('');
+    }
+
+    const content = this.readFile(analysis.path);
+    if (content) {
+      parts.push('### Full File Content');
+      parts.push(`\`\`\`${analysis.language}`);
+      parts.push(content.slice(0, 3000));
+      parts.push('```');
     }
 
     if (referencedAnalyses.length > 0) {
       parts.push('');
-      parts.push(`## Referenced Files (${referencedAnalyses.length})`);
+      parts.push(`## Impacted / Referenced Files (${referencedAnalyses.length})`);
       parts.push('');
-      parts.push('These files are **imported by** the changed files above.');
-      parts.push('They were NOT directly modified but are part of the blast radius.');
-      parts.push('Use them to understand the full context — interfaces, base classes,');
-      parts.push('shared utilities, or data models that the changed code depends on.');
+      parts.push('These files are **imported by** the changed file above. Use them to understand the full impact of the change.');
       parts.push('');
 
-      for (const analysis of referencedAnalyses) {
-        parts.push(formatForPrompt(analysis));
-        const content = this.readFile(analysis.path);
-        if (content) {
-          parts.push(`\`\`\`${analysis.language}`);
-          parts.push(content.slice(0, 1500));
+      for (const refAnalysis of referencedAnalyses) {
+        parts.push(formatForPrompt(refAnalysis));
+        const refContent = this.readFile(refAnalysis.path);
+        if (refContent) {
+          parts.push(`\`\`\`${refAnalysis.language}`);
+          parts.push(refContent.slice(0, 1500));
           parts.push('```');
         }
         parts.push('---');
       }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Builds a prompt for the final consolidation call that synthesises all per-file
+   * summaries into a coherent overall PR review.
+   */
+  private buildConsolidationPrompt(
+    pr: PullRequest,
+    perFileSummaries: string[],
+    totalFiles: number
+  ): string {
+    const parts: string[] = [];
+
+    parts.push(`## PR #${pr.id} — Overall Review Consolidation`);
+    parts.push('');
+    parts.push(`The following are individual file-level review notes for a pull request with ${totalFiles} changed file(s).`);
+    parts.push('Based on these notes, write a concise **overall summary** of the PR review.');
+    parts.push('Highlight the most important findings, cross-cutting concerns, and overall code quality assessment.');
+    parts.push('Do **not** emit inline comments — they have already been collected from the per-file reviews above.');
+    parts.push('');
+
+    for (const summary of perFileSummaries) {
+      parts.push(summary);
+      parts.push('');
     }
 
     return parts.join('\n');

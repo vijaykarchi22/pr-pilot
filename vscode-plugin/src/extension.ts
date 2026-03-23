@@ -129,7 +129,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
       const aiClient = new OpenAIClient(skillsService);
       const service = prTreeProvider.getService();
-      const builder = new AiReviewBuilder(service, aiClient, workspaceRoot);
+      const builder = new AiReviewBuilder(service, aiClient, workspaceRoot, skillsService);
 
       const generateReview = async () => {
         await vscode.window.withProgress(
@@ -153,8 +153,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               const rawText = await builder.buildSummaryText(
                 item.pr,
                 repoInfo,
-                (msg) => { progress.report({ message: msg }); },
-                (delta, isThinking) => { panel.appendChunk(delta, isThinking); }
+                (msg) => { progress.report({ message: msg }); panel.updateStatus(msg); },
+                (delta, isThinking) => { panel.appendChunk(delta, isThinking); },
+                (label, messages) => { panel.addPrompt(label, messages); }
               );
               const result = builder.parseResponse(rawText);
               panel.finalizeStream(result);

@@ -13,7 +13,8 @@ export interface MethodInfo {
 
 export interface ClassInfo {
   name: string;
-  kind: string;     // "class" | "interface" | "object" | "enum" | ...
+  kind: string;        // "class" | "interface" | "object" | "enum" | ...
+  visibility: string;  // "public" | "private" | "protected" | "internal" | "" (package-private)
   lineNumber: number;
   methods: MethodInfo[];
 }
@@ -249,7 +250,8 @@ export function formatForPrompt(analysis: FileAnalysis): string {
     lines.push('**Classes/Objects:**');
     for (const cls of analysis.classes) {
       const flag = cls.methods.some((m) => m.isChanged) ? '🔴 ' : '';
-      lines.push(`  - ${flag}${cls.kind} \`${cls.name}\` (line ${cls.lineNumber})`);
+      const visLabel = cls.visibility ? cls.visibility : '⚠️ no-visibility-modifier (package-private)';
+      lines.push(`  - ${flag}${cls.kind} \`${cls.name}\` [${visLabel}] (line ${cls.lineNumber})`);
       for (const method of cls.methods) {
         const mFlag = method.isChanged ? ' ← changed' : '';
         lines.push(`    - \`${method.signature}\` (line ${method.lineNumber})${mFlag}`);
@@ -301,7 +303,9 @@ function parseJvmStyle(lines: string[], changed: Set<number>): [ClassInfo[], Met
   const topLevel: MethodInfo[] = [];
   const classStack: Array<{ info: ClassInfo; indent: number }> = [];
 
+  // Group 1 = modifier keywords, group 2 = class name
   const classRe = /^\s*((?:abstract|open|sealed|data|inner|inline|value|private|public|protected|internal|\s)*)(?:class|interface|object|enum(?:\s+class)?)\s+(\w+)/;
+  const visibilityRe = /\b(public|private|protected|internal)\b/;
   const funRe = /^\s*((?:override|private|public|protected|internal|suspend|inline|operator|infix|\s)*)(?:fun|def|void|static\s+\w+|\w+)\s+(\w+)\s*\(/;
 
   lines.forEach((line, idx) => {
@@ -316,11 +320,14 @@ function parseJvmStyle(lines: string[], changed: Set<number>): [ClassInfo[], Met
 
     const classMatch = classRe.exec(line);
     if (classMatch) {
+      const modifiers = classMatch[1] ?? '';
+      const visMatch = visibilityRe.exec(modifiers);
       const info: ClassInfo = {
         name: classMatch[2],
         kind: line.trim().includes('interface') ? 'interface' :
               line.trim().includes('object') ? 'object' :
               line.trim().includes('enum') ? 'enum' : 'class',
+        visibility: visMatch ? visMatch[1] : '',
         lineNumber: lineNum,
         methods: [],
       };
@@ -364,7 +371,7 @@ function parsePython(lines: string[], changed: Set<number>): [ClassInfo[], Metho
 
     const classMatch = classRe.exec(line);
     if (classMatch) {
-      currentClass = { name: classMatch[1], kind: 'class', lineNumber: lineNum, methods: [] };
+      currentClass = { name: classMatch[1], kind: 'class', visibility: '', lineNumber: lineNum, methods: [] };
       classes.push(currentClass);
       classIndent = 0;
       return;
@@ -412,9 +419,11 @@ function parseTypeScript(lines: string[], changed: Set<number>): [ClassInfo[], M
 
     const classMatch = classRe.exec(line);
     if (classMatch) {
+      const visMatch = /\b(public|private|protected)\b/.exec(line);
       currentClass = {
         name: classMatch[1],
         kind: line.includes('interface') ? 'interface' : line.includes('enum') ? 'enum' : 'class',
+        visibility: visMatch ? visMatch[1] : (line.includes('export') ? 'public' : ''),
         lineNumber: lineNum,
         methods: [],
       };
@@ -466,7 +475,7 @@ function parseGo(lines: string[], changed: Set<number>): [ClassInfo[], MethodInf
   lines.forEach((line, idx) => {
     const structMatch = structRe.exec(line);
     if (structMatch) {
-      const info: ClassInfo = { name: structMatch[1], kind: 'struct', lineNumber: idx + 1, methods: [] };
+      const info: ClassInfo = { name: structMatch[1], kind: 'struct', visibility: '', lineNumber: idx + 1, methods: [] };
       classes.push(info);
       structs.set(structMatch[1], info);
     }

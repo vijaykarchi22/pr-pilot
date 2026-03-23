@@ -169,8 +169,24 @@ export class BitbucketClient {
     const url = `${BASE}/repositories/${workspace}/${repoSlug}/pullrequests/${prId}/comments`;
     for (const ic of comments) {
       if (!ic.file || ic.line <= 0) continue;
+
+      // Build a rich comment body from structured fields when available,
+      // falling back to the plain comment string for backwards compatibility.
+      let body: string;
+      if (ic.issue || ic.cause || ic.fix) {
+        const parts: string[] = [];
+        if (ic.issue) { parts.push(`**Issue:** ${ic.issue}`); }
+        if (ic.cause) { parts.push(`**Cause:** ${ic.cause}`); }
+        if (ic.fix)   { parts.push(`**Fix:** ${ic.fix}`); }
+        body = parts.join('\n\n');
+      } else {
+        body = ic.comment ?? '';
+      }
+
+      if (!body.trim()) continue;
+
       const payload = JSON.stringify({
-        content: { raw: ic.comment },
+        content: { raw: body },
         inline: { from: ic.line, to: ic.line, path: ic.file },
       });
       try {

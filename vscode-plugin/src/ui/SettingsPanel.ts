@@ -221,6 +221,45 @@ export class SettingsPanel {
     button.danger:hover { background: #f14c4c15; }
     .skill-actions { display: flex; gap: 8px; margin-top: 6px; }
     .hint { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
+    .info-box {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .info-box > summary {
+      list-style: none;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--vscode-editor-inactiveSelectionBackground);
+      user-select: none;
+    }
+    .info-box > summary::-webkit-details-marker { display: none; }
+    .info-box[open] > summary { border-bottom: 1px solid var(--vscode-panel-border); }
+    .info-body {
+      padding: 12px 14px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--vscode-foreground);
+    }
+    .info-body ol, .info-body ul { margin-left: 20px; margin-top: 6px; }
+    .info-body li { margin-bottom: 4px; }
+    .info-body p { margin-top: 4px; }
+    .info-body code {
+      background: var(--vscode-textCodeBlock-background);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .var-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .var-table th, .var-table td {
+      padding: 5px 10px;
+      border: 1px solid var(--vscode-panel-border);
+      font-size: 12px;
+      text-align: left;
+    }
+    .var-table th { background: var(--vscode-editor-selectionBackground); font-weight: 600; }
     .footer {
       padding: 12px 20px;
       border-top: 1px solid var(--vscode-panel-border);
@@ -362,15 +401,57 @@ export class SettingsPanel {
       <!-- Skills & Prompts -->
       <div id="section-skills" class="section">
         <h2>Skills &amp; Prompts</h2>
-        <p class="hint" style="margin-bottom:16px">
+        <p class="hint" style="margin-bottom:12px">
           These files control how the AI reviews code. They are stored in
-          <code>.vscode/pr-pilot/skills/</code> in your workspace and can be committed to source control.
+          <code>.vscode/pr-pilot/skills/</code> in your workspace and can be committed to source control
+          so the whole team shares the same review behaviour.
           <button class="secondary" onclick="openSkillsFolder()" style="margin-left:8px;font-size:11px;padding:2px 8px">📂 Open Folder</button>
         </p>
 
+        <!-- How it works -->
+        <details class="info-box" style="margin-bottom:20px">
+          <summary>ℹ️ How the review pipeline works</summary>
+          <div class="info-body">
+            <p>When you click <strong>Generate AI Review</strong>, PR Pilot performs these steps for each changed file:</p>
+            <ol>
+              <li>Fetches the <strong>git diff</strong> and full file content from the provider API.</li>
+              <li>Resolves any locally imported files to add as <strong>reference context</strong>.</li>
+              <li>Builds the prompt by replacing <code>{prContext}</code> in <strong>system_prompt.md</strong> with:
+                <ul>
+                  <li>PR metadata (id, title, author, branches)</li>
+                  <li>The file's git diff</li>
+                  <li>The full file content</li>
+                  <li>Referenced / imported file content</li>
+                </ul>
+              </li>
+              <li>Sends the filled system prompt + <strong>review_rules.md</strong> + <strong>coding_standards.md</strong> to the LLM.</li>
+              <li>Collects inline comments and per-file summaries, then makes a final <strong>consolidation call</strong> to produce the overall review.</li>
+            </ol>
+          </div>
+        </details>
+
+        <!-- Variables reference -->
+        <details class="info-box" style="margin-bottom:20px">
+          <summary>🔧 Available template variables</summary>
+          <div class="info-body">
+            <table class="var-table">
+              <thead><tr><th>Variable</th><th>Where to use</th><th>Replaced with</th></tr></thead>
+              <tbody>
+                <tr><td><code>{prContext}</code></td><td>system_prompt.md</td><td>PR metadata + git diff + full file content + referenced files</td></tr>
+              </tbody>
+            </table>
+            <p style="margin-top:8px">Place <code>{prContext}</code> anywhere in <strong>system_prompt.md</strong> to control where in the system message the live file context is injected. If omitted, the context is appended automatically at the end.</p>
+          </div>
+        </details>
+
         <div class="field">
-          <label>system_prompt.md — Role, tone, and output format</label>
-          <textarea id="skill-system_prompt">${escText(skills.system_prompt)}</textarea>
+          <label><strong>system_prompt.md</strong> — AI role, behaviour, tone &amp; output format</label>
+          <div class="hint" style="margin-bottom:6px">
+            Defines <em>who the AI is</em> and <em>how it should respond</em>. Use <code>{prContext}</code> as a placeholder
+            where the live PR diff and file content will be injected at review time.
+            Change this to adjust the review style, verbosity, or focus areas.
+          </div>
+          <textarea id="skill-system_prompt" rows="20">${escText(skills.system_prompt)}</textarea>
           <div class="skill-actions">
             <button class="secondary" onclick="saveSkill('system_prompt')">💾 Save</button>
             <button class="secondary" onclick="resetSkill('system_prompt')">↺ Reset to Default</button>
@@ -378,8 +459,13 @@ export class SettingsPanel {
         </div>
 
         <div class="field">
-          <label>review_rules.md — Review checklist and focus areas</label>
-          <textarea id="skill-review_rules">${escText(skills.review_rules)}</textarea>
+          <label><strong>review_rules.md</strong> — Review checklist &amp; mandatory checks</label>
+          <div class="hint" style="margin-bottom:6px">
+            A list of rules the AI must apply to every review regardless of the code being reviewed.
+            Add project-specific security rules, architecture guidelines, or non-negotiables here.
+            Sent as a separate system message so it is never diluted by the diff content.
+          </div>
+          <textarea id="skill-review_rules" rows="14">${escText(skills.review_rules)}</textarea>
           <div class="skill-actions">
             <button class="secondary" onclick="saveSkill('review_rules')">💾 Save</button>
             <button class="secondary" onclick="resetSkill('review_rules')">↺ Reset to Default</button>
@@ -387,8 +473,13 @@ export class SettingsPanel {
         </div>
 
         <div class="field">
-          <label>coding_standards.md — Team coding conventions</label>
-          <textarea id="skill-coding_standards">${escText(skills.coding_standards)}</textarea>
+          <label><strong>coding_standards.md</strong> — Team coding conventions</label>
+          <div class="hint" style="margin-bottom:6px">
+            Describes your team's language-specific conventions, naming rules, preferred patterns, and anti-patterns.
+            The AI will flag deviations from these standards as review comments.
+            Customise this per-project and commit it alongside your code.
+          </div>
+          <textarea id="skill-coding_standards" rows="14">${escText(skills.coding_standards)}</textarea>
           <div class="skill-actions">
             <button class="secondary" onclick="saveSkill('coding_standards')">💾 Save</button>
             <button class="secondary" onclick="resetSkill('coding_standards')">↺ Reset to Default</button>

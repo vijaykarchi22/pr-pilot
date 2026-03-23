@@ -3,7 +3,23 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Logger } from '../utils/Logger';
 
-const DEFAULT_SKILL_FILES = ['system_prompt.md', 'review_rules.md', 'coding_standards.md'];
+const DEFAULT_SKILL_FILES = [
+  // Core prompts (always seeded)
+  'system_prompt.md',
+  'review_rules.md',
+  'coding_standards.md',
+  // Angular type rules
+  'component_rules.md',
+  'service_rules.md',
+  'guard_rules.md',
+  'interceptor_rules.md',
+  'state_rules.md',
+  // Spring Boot / JVM type rules
+  'controller_rules.md',
+  'java_service_rules.md',
+  'repository_rules.md',
+  'model_rules.md',
+];
 
 /**
  * Manages PR Pilot skill files stored under `.vscode/pr-pilot/skills/` in the workspace.
